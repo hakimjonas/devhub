@@ -1,0 +1,93 @@
+{
+  "config_version": "1.0",
+  "default_organization": "hakim-dev",
+  "organizations": {
+    "hakim-dev": {
+      "description": "Hakim's Personal Development Environment",
+      "jira": {
+        "base_url": null,
+        "default_project_prefix": "DEV",
+        "timeout_seconds": 30,
+        "max_retries": 3
+      },
+      "github": {
+        "default_org": "hakimjonas",
+        "timeout_seconds": 30,
+        "max_retries": 3,
+        "use_ssh": true
+      },
+      "output": {
+        "base_directory": "review-bundles",
+        "include_timestamps": true,
+        "file_permissions": 644,
+        "directory_permissions": 755
+      },
+      "bundle_defaults": {
+        "include_jira": false,
+        "include_pr": true,
+        "include_diff": true,
+        "include_comments": true,
+        "comment_limit": 20,
+        "diff_context_lines": 5
+      }
+    },
+    "client-work": {
+      "description": "Client Projects and Consulting Work",
+      "jira": {
+        "base_url": null,
+        "default_project_prefix": "CLIENT",
+        "timeout_seconds": 45,
+        "max_retries": 5
+      },
+      "github": {
+        "default_org": null,
+        "timeout_seconds": 45,
+        "max_retries": 3,
+        "use_ssh": true
+      },
+      "output": {
+        "base_directory": "client-reviews",
+        "include_timestamps": true
+      },
+      "bundle_defaults": {
+        "include_jira": true,
+        "include_pr": true,
+        "include_diff": true,
+        "include_comments": true,
+        "comment_limit": 15,
+        "diff_context_lines": 3
+      }
+    },
+    "open-source": {
+      "description": "Open Source Contributions",
+      "github": {
+        "default_org": null,
+        "use_ssh": false
+      },
+      "output": {
+        "base_directory": "oss-reviews",
+        "include_timestamps": false
+      },
+      "bundle_defaults": {
+        "include_jira": false,
+        "include_pr": true,
+        "include_diff": true,
+        "include_comments": true,
+        "comment_limit": 25,
+        "diff_context_lines": 7
+      }
+    }
+  },
+  "global_jira": {
+    "timeout_seconds": 60,
+    "max_retries": 3
+  },
+  "global_github": {
+    "timeout_seconds": 45,
+    "max_retries": 3
+  },
+  "global_output": {
+    "file_permissions": 644,
+    "directory_permissions": 755
+  }
+}

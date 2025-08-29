@@ -1,0 +1,4 @@
+# file: /home/hakim/tools/devhub/src/devhub/config.py
+# hypothesis_version: 6.138.7
+
+[420, 493, '.devhub', '.devhub.json', '1.0', 'ACME', 'GITHUB_DEFAULT_ORG', 'JIRA_API_TOKEN', 'JIRA_BASE_URL', 'JIRA_DEFAULT_PROJECT', 'JIRA_EMAIL', 'STARTUP', 'acme-corp', 'acme-reviews', 'api_token', 'base_directory', 'base_url', 'bundle_defaults', 'comment_limit', 'config.json', 'config_version', 'default_org', 'default_organization', 'description', 'dict[str, Any]', 'diff_context_lines', 'email', 'file_permissions', 'github', 'include_comments', 'include_diff', 'include_jira', 'include_pr', 'include_timestamps', 'jira', 'max_retries', 'nt', 'organizations', 'output', 'review-bundles', 'startup-inc', 'timeout_seconds', 'use_ssh', 'utf-8']
