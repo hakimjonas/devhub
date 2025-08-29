@@ -17,6 +17,7 @@ from typing import cast
 
 from returns.result import Success
 
+from devhub import __version__
 from devhub.config import DevHubConfig
 from devhub.config import load_config_with_environment
 from devhub.main import BundleConfig
@@ -386,6 +387,101 @@ class DevHubMCPServer:
         }
 
 
+def _print_available_tools() -> None:
+    """Print available MCP tools for inspection."""
+    server = DevHubMCPServer()
+
+    print("DevHub MCP Server - Available Tools:")  # noqa: T201
+    print("=" * 40)  # noqa: T201
+
+    # Get tools from the server's tool registry
+    for tool_name, tool_info in server.tools.items():
+        print(f"\n🔧 {tool_name}")  # noqa: T201
+        print(f"   Description: {tool_info['description']}")  # noqa: T201
+
+        # Show parameters if available
+        input_schema = cast("dict[str, Any]", tool_info.get("inputSchema", {}))
+        if "properties" in input_schema:
+            print("   Parameters:")  # noqa: T201
+            required_params = cast("list[str]", input_schema.get("required", []))
+            properties = cast("dict[str, dict[str, Any]]", input_schema["properties"])
+
+            for param, details in properties.items():
+                required_mark = " (required)" if param in required_params else " (optional)"
+                param_type = details.get("type", "unknown")
+                param_desc = details.get("description", "No description")
+                print(f"     - {param} ({param_type}){required_mark}: {param_desc}")  # noqa: T201
+
+                # Show default value if available
+                if "default" in details:
+                    print(f"       Default: {details['default']}")  # noqa: T201
+
+    print(f"\nTotal tools available: {len(server.tools)}")  # noqa: T201
+    print("\nUsage:")  # noqa: T201
+    print("  - For AI agents: Connect an MCP client to this server")  # noqa: T201
+    print("  - For testing: Use 'devhub-mcp --test' to verify functionality")  # noqa: T201
+
+
+async def _test_tools_listing(server: DevHubMCPServer) -> None:
+    """Test MCP server tools listing functionality."""
+    try:
+        tools_request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        response = await server.handle_request(tools_request)
+        if "result" in response and "tools" in response["result"]:
+            tools_count = len(response["result"]["tools"])
+            print(f"✅ Tools available: {tools_count}")  # noqa: T201
+        else:
+            print("❌ Tools list failed")  # noqa: T201
+
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+        print(f"❌ Tools test failed: {e}")  # noqa: T201
+
+
+async def _test_branch_context(server: DevHubMCPServer) -> None:
+    """Test MCP server branch context functionality."""
+    try:
+        context_request = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "get-current-branch-context"},
+        }
+        response = await server.handle_request(context_request)
+        if "error" not in response:
+            print("✅ Current branch context accessible")  # noqa: T201
+        else:
+            print(f"⚠️  Branch context: {response['error']['message']}")  # noqa: T201
+
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, RuntimeError) as e:
+        print(f"❌ Context test failed: {e}")  # noqa: T201
+
+
+async def _test_configuration_loading() -> None:
+    """Test configuration loading functionality."""
+    try:
+        config_result = load_config_with_environment()
+        if isinstance(config_result, Success):
+            print("✅ Configuration loaded successfully")  # noqa: T201
+        else:
+            print(f"⚠️  Configuration: {config_result.failure()}")  # noqa: T201
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        print(f"❌ Configuration test failed: {e}")  # noqa: T201
+
+
+async def _test_mcp_server() -> None:
+    """Test MCP server functionality."""
+    print("Testing DevHub MCP Server...")  # noqa: T201
+
+    server = DevHubMCPServer()
+
+    # Run individual test functions
+    await _test_tools_listing(server)
+    await _test_branch_context(server)
+    await _test_configuration_loading()
+
+    print("\nMCP server test completed.")  # noqa: T201
+
+
 async def main() -> None:
     """Run the MCP server."""
     server = DevHubMCPServer()
@@ -416,6 +512,41 @@ async def main() -> None:
             print(json.dumps(error_response), flush=True)  # noqa: T201
 
 
-if __name__ == "__main__":
+def cli_main() -> None:
+    """Entry point for the devhub-mcp command with dual mode support."""
+    parser = argparse.ArgumentParser(
+        prog="devhub-mcp", description="DevHub MCP Server - Model Context Protocol interface for AI agents"
+    )
+
+    parser.add_argument("--version", action="version", version=f"devhub-mcp {__version__}")
+
+    parser.add_argument(
+        "--server",
+        action="store_true",
+        default=False,
+        help="Run as MCP server (default mode when no other options provided)",
+    )
+
+    parser.add_argument("--tools", action="store_true", help="List available MCP tools and exit")
+
+    parser.add_argument("--test", action="store_true", help="Test MCP server functionality and exit")
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Handle specific modes
+    if args.tools:
+        _print_available_tools()
+        return
+
+    if args.test:
+        asyncio.run(_test_mcp_server())
+        return
+
+    # Default: run as MCP server (when no specific action requested)
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli_main()

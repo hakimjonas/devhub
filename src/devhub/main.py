@@ -36,6 +36,7 @@ from returns.result import Failure
 from returns.result import Result
 from returns.result import Success
 
+from devhub import __version__
 from devhub.config import DevHubConfig
 from devhub.config import load_config_with_environment
 
@@ -758,6 +759,160 @@ def save_comments_bundle(
 # -----------------------------
 
 
+def _check_version() -> tuple[str, Result[str, str]]:
+    """Check DevHub version information."""
+    return ("Version", Success(f"DevHub {__version__}"))
+
+
+def _check_configuration() -> tuple[str, Result[str, str]]:
+    """Check configuration loading."""
+    config_result = load_config_with_environment()
+    match config_result:
+        case Success(_):
+            return ("Configuration", Success("✓ Configuration loaded successfully"))
+        case Failure(error):
+            return ("Configuration", Failure(f"Failed to load: {error}"))
+        case _:
+            # This should never happen, but mypy requires it for exhaustiveness
+            return ("Configuration", Failure("Unknown configuration error"))
+
+
+def _check_organization(config_result: Result[DevHubConfig, str]) -> tuple[str, Result[str, str]]:
+    """Check organization settings."""
+    if not isinstance(config_result, Success):
+        return ("Default Organization", Success("Not configured (config failed)"))
+
+    config = config_result.unwrap()
+    if not config.default_organization:
+        return ("Default Organization", Success("Not configured (using global settings)"))
+
+    org = config.get_default_organization()
+    if org:
+        return ("Default Organization", Success(f"✓ Using '{org.name}'"))
+
+    return ("Default Organization", Failure(f"Default org '{config.default_organization}' not found"))
+
+
+def _check_git_repository() -> tuple[str, Result[str, str]]:
+    """Check Git repository status."""
+    try:
+        repo_result = get_repository_info()
+        match repo_result:
+            case Success(repo):
+                return ("Git Repository", Success(f"✓ {repo.owner}/{repo.name}"))
+            case Failure(error):
+                return ("Git Repository", Failure(f"Not in git repo or GitHub CLI issue: {error}"))
+            case _:
+                # This should never happen, but mypy requires it for exhaustiveness
+                return ("Git Repository", Failure("Unknown repository error"))
+    except (OSError, subprocess.CalledProcessError) as e:
+        return ("Git Repository", Failure(f"Git check failed: {e}"))
+
+
+def _check_github_cli() -> tuple[str, Result[str, str]]:
+    """Check GitHub CLI availability."""
+    if check_command_exists("gh"):
+        return ("GitHub CLI", Success("✓ gh command available"))
+    return ("GitHub CLI", Failure("gh command not found - install GitHub CLI"))
+
+
+def _check_git_command() -> tuple[str, Result[str, str]]:
+    """Check Git command availability."""
+    if check_command_exists("git"):
+        return ("Git", Success("✓ git command available"))
+    return ("Git", Failure("git command not found"))
+
+
+def _check_jira_credentials(config_result: Result[DevHubConfig, str]) -> tuple[str, Result[str, str]]:
+    """Check Jira credentials availability."""
+    if not isinstance(config_result, Success):
+        return ("Jira Credentials", Success("Not configured (config failed)"))
+
+    config = config_result.unwrap()
+    jira_config = config.global_jira
+
+    if not (jira_config.base_url or os.getenv("JIRA_BASE_URL")):
+        return ("Jira Credentials", Success("Not configured (optional)"))
+
+    credentials = get_jira_credentials_from_config(config) or get_jira_credentials()
+    if credentials:
+        return ("Jira Credentials", Success("✓ Jira credentials available"))
+
+    return ("Jira Credentials", Failure("Jira configured but credentials missing"))
+
+
+def _format_check_results(checks: list[tuple[str, Result[str, str]]]) -> tuple[list[str], int]:
+    """Format check results into display strings and count failures."""
+    results = []
+    failed_count = 0
+
+    for check_name, result in checks:
+        match result:
+            case Success(message):
+                results.append(f"  {check_name}: {message}")
+            case Failure(error):
+                results.append(f"  {check_name}: ❌ {error}")
+                failed_count += 1
+
+    return results, failed_count
+
+
+def handle_doctor_command() -> Result[str, str]:
+    """Run comprehensive health checks and verify DevHub installation.
+
+    Performs functional health checks including:
+    - Configuration validation
+    - External command dependencies
+    - Git repository detection
+    - Credential availability
+
+    Returns:
+        Result containing success message or error details
+    """
+    config_result = load_config_with_environment()
+
+    # Run all health checks
+    checks = [
+        _check_version(),
+        _check_configuration(),
+        _check_organization(config_result),
+        _check_git_repository(),
+        _check_github_cli(),
+        _check_git_command(),
+        _check_jira_credentials(config_result),
+    ]
+
+    # Format results
+    results, failed_count = _format_check_results(checks)
+    total_checks = len(checks)
+    passed_checks = total_checks - failed_count
+
+    summary = [
+        "DevHub Health Check Results:",
+        f"  Passed: {passed_checks}/{total_checks} checks",
+        "",
+        *results,
+    ]
+
+    if failed_count > 0:
+        summary.extend(
+            [
+                "",
+                "Issues found. DevHub may not work correctly.",
+                "Please address the failed checks above.",
+            ]
+        )
+        return Failure("\n".join(summary))
+
+    summary.extend(
+        [
+            "",
+            "✅ All checks passed! DevHub is ready to use.",
+        ]
+    )
+    return Success("\n".join(summary))
+
+
 def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
     """Handle bundle command with functional composition."""
     # Load configuration first
@@ -1082,6 +1237,14 @@ def create_parser() -> argparse.ArgumentParser:
         prog="devhub",
         description="Bundle Jira + GitHub PR info for quick review.",
     )
+
+    # Add global --version argument
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Bundle command
@@ -1090,6 +1253,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Bundle Jira + PR + Diff + Unresolved comments",
     )
     _add_bundle_arguments(bundle_parser)
+
+    # Doctor command for health checks
+    subparsers.add_parser(
+        "doctor",
+        help="Run health checks and verify DevHub installation",
+    )
 
     return parser
 
@@ -1124,22 +1293,28 @@ def main(argv: list[str] | None = None) -> int:
     parser = create_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "bundle":
-        result = handle_bundle_command(args)
-        match result:
-            case Success(message):
-                sys.stdout.write(f"{message}\n")
-                return 0
-            case Failure(error):
-                sys.stderr.write(f"Error: {error}\n")
-                return 1
-            case _:
-                # Fallback, shouldn't happen but satisfies exhaustive checking
-                sys.stderr.write("Unknown result\n")
-                return 1
+    # Handle commands using functional pattern matching
+    match args.command:
+        case "bundle":
+            result = handle_bundle_command(args)
+        case "doctor":
+            result = handle_doctor_command()
+        case _:
+            sys.stderr.write(f"Unknown command: {args.command}\n")
+            return 1
 
-    sys.stderr.write(f"Unknown command: {args.command}\n")
-    return 1
+    # Handle result using functional pattern matching
+    match result:
+        case Success(message):
+            sys.stdout.write(f"{message}\n")
+            return 0
+        case Failure(error):
+            sys.stderr.write(f"Error: {error}\n")
+            return 1
+        case _:
+            # Fallback, shouldn't happen but satisfies exhaustive checking
+            sys.stderr.write("Unknown result\n")
+            return 1
 
 
 if __name__ == "__main__":

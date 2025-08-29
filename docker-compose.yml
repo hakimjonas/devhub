@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  devhub:
+    build: .
+    image: devhub:latest
+    container_name: devhub-cli
+    volumes:
+      # Mount current directory for project access
+      - .:/workspace
+      # Mount git config for authentication
+      - ~/.gitconfig:/home/devhub/.gitconfig:ro
+      # Mount GitHub CLI config for authentication
+      - ~/.config/gh:/home/devhub/.config/gh:ro
+      # Mount DevHub config directory
+      - ~/.config/devhub:/home/devhub/.config/devhub:ro
+      # Mount SSH keys for git operations
+      - ~/.ssh:/home/devhub/.ssh:ro
+    environment:
+      # Pass through environment variables for credentials
+      - JIRA_EMAIL
+      - JIRA_API_TOKEN
+      - JIRA_BASE_URL
+      - GITHUB_TOKEN
+      - DEVHUB_CONFIG
+      - DEVHUB_ORGANIZATION
+    working_dir: /workspace
+    # Override default command for interactive usage
+    command: ["--help"]
+    
+  # Development service for working on DevHub itself
+  devhub-dev:
+    build: 
+      context: .
+      target: builder  # Use builder stage for development
+    image: devhub:dev
+    container_name: devhub-dev
+    volumes:
+      # Mount source for development
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./uv.lock:/app/uv.lock
+      # Git and GitHub config
+      - ~/.gitconfig:/root/.gitconfig:ro
+      - ~/.config/gh:/root/.config/gh:ro
+      # DevHub config
+      - ~/.config/devhub:/root/.config/devhub:ro
+    environment:
+      - JIRA_EMAIL
+      - JIRA_API_TOKEN
+      - JIRA_BASE_URL
+      - GITHUB_TOKEN
+      - DEVHUB_CONFIG
+      - DEVHUB_ORGANIZATION
+    working_dir: /app
+    command: ["uv", "run", "devhub", "--help"]
+    
+  # CI/Testing service
+  devhub-test:
+    build:
+      context: .
+      target: builder
+    image: devhub:test
+    container_name: devhub-test
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./uv.lock:/app/uv.lock
+    working_dir: /app
+    command: ["uv", "run", "pytest", "-v"]
+    profiles:
+      - testing
+
+# Usage examples:
+# 
+# Build and run DevHub:
+#   docker-compose up devhub
+#   docker-compose run --rm devhub doctor
+#   docker-compose run --rm devhub bundle --jira-key ABC-123
+#
+# Development:
+#   docker-compose up devhub-dev
+#   docker-compose run --rm devhub-dev uv run pytest
+#
+# Testing:
+#   docker-compose --profile testing run --rm devhub-test
+#
+# Interactive shell:
+#   docker-compose run --rm devhub bash

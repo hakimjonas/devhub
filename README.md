@@ -22,39 +22,218 @@ DevHub is a sophisticated CLI tool that demonstrates clean, maintainable Python 
 
 ## 🛠️ Installation
 
-### Using UV (Recommended)
+DevHub provides multiple installation methods to suit different use cases and environments.
+
+### 📦 PyPI (Recommended for End Users)
 
 ```bash
-# Clone the repository
-git clone https://github.com/hakimjonas/devhub.git
-cd devhub
-
-# Install with UV (handles Python version automatically)
-uv sync
-
-# Make available globally
-uv tool install .
-```
-
-### Using pip
-
-```bash
-# Install from PyPI (when published)
+# Install from PyPI using pip
 pip install devhub
 
-# Or install from source
-pip install git+https://github.com/hakimjonas/devhub.git
+# Or using pipx (recommended for CLI tools)
+pipx install devhub
+
+# Verify installation
+devhub --version
+devhub doctor
 ```
 
-### Development Setup
+### ⚡ UV Tool (Modern Python Package Manager)
+
+```bash
+# Install globally using uv
+uv tool install devhub
+
+# Or install from Git repository
+uv tool install git+https://github.com/hakimjonas/devhub.git
+
+# Verify installation
+devhub --version
+devhub doctor
+```
+
+### 🐳 Docker (Containerized)
+
+```bash
+# Pull and run from GitHub Container Registry
+docker run --rm ghcr.io/hakimjonas/devhub:latest --version
+
+# Interactive usage with mounted workspace
+docker run --rm -it \
+  -v $(pwd):/workspace \
+  -v ~/.config/devhub:/home/devhub/.config/devhub:ro \
+  -v ~/.config/gh:/home/devhub/.config/gh:ro \
+  ghcr.io/hakimjonas/devhub:latest doctor
+
+# Using docker-compose for development
+docker-compose run --rm devhub doctor
+```
+
+### 🍺 Homebrew (macOS/Linux)
+
+```bash
+# Install from local formula (development)
+git clone https://github.com/hakimjonas/devhub.git
+cd devhub
+brew install --build-from-source homebrew/devhub.rb
+
+# Future: Install from tap (when published)
+# brew tap hakimjonas/devhub
+# brew install devhub
+
+# Verify installation
+devhub --version
+devhub doctor
+```
+
+### 🔧 Development Setup
 
 ```bash
 # Clone and set up development environment
 git clone https://github.com/hakimjonas/devhub.git
 cd devhub
+
+# Install dependencies and development tools
 uv sync
 uv run pre-commit install
+
+# Run in development mode
+uv run devhub --version
+uv run devhub doctor
+
+# Run tests
+uv run pytest
 ```
+
+### 🔍 Installation Verification
+
+After installation, verify DevHub is working correctly:
+
+```bash
+# Check version
+devhub --version
+# Output: devhub 0.1.0
+
+# Run comprehensive health checks
+devhub doctor
+# Output: DevHub Health Check Results with system status
+
+# View available commands
+devhub --help
+
+# Test basic functionality (in a git repository)
+devhub bundle --help
+```
+
+### 🎯 Quick Start Test
+
+```bash
+# Navigate to any git repository
+cd /path/to/your/git/repo
+
+# Run health check to verify setup
+devhub doctor
+
+# Create a test bundle (requires GitHub CLI authentication)
+devhub bundle --jira-key TEST-123
+```
+
+## 🤖 AI Agent Integration (MCP Mode)
+
+DevHub can be used as an MCP (Model Context Protocol) server for AI agents like Claude Desktop, providing real-time access to development context.
+
+### MCP Server Commands
+
+```bash
+# Show help and available options
+devhub-mcp --help
+
+# List available MCP tools
+devhub-mcp --tools
+
+# Test MCP server functionality  
+devhub-mcp --test
+
+# Run as MCP server (default mode)
+devhub-mcp
+```
+
+### Claude Desktop Configuration
+
+Add DevHub to your Claude Desktop configuration (`~/.config/claude-desktop/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "devhub": {
+      "command": "devhub-mcp",
+      "args": [],
+      "env": {
+        "JIRA_BASE_URL": "https://your-domain.atlassian.net",
+        "JIRA_EMAIL": "your.email@company.com",
+        "JIRA_API_TOKEN": "your-api-token",
+        "GITHUB_TOKEN": "your-github-token"
+      }
+    }
+  }
+}
+```
+
+### MCP Tools Available
+
+When connected as an MCP server, DevHub provides these tools to AI agents:
+
+- **`get-bundle-context`** - Comprehensive bundle with Jira issue, PR details, diff, and comments
+- **`get-jira-issue`** - Fetch specific Jira issue details  
+- **`get-pr-details`** - Fetch GitHub PR information with optional diff
+- **`get-pr-comments`** - Fetch unresolved PR review comments
+- **`get-current-branch-context`** - Auto-detect and get context for current git branch
+
+### MCP Usage Examples
+
+Once configured, AI agents can use natural language to:
+
+```
+"Show me the context for JIRA-123 including the PR and comments"
+→ Uses get-bundle-context with jira_key="JIRA-123"
+
+"Get the details for PR #42 without the diff"  
+→ Uses get-pr-details with pr_number=42, include_diff=false
+
+"What's the current branch context?"
+→ Uses get-current-branch-context to auto-detect and fetch context
+```
+
+### 🐛 Troubleshooting Installation
+
+If you encounter issues:
+
+1. **Check dependencies**:
+   ```bash
+   devhub doctor  # Shows missing dependencies
+   ```
+
+2. **Verify GitHub CLI is installed and authenticated**:
+   ```bash
+   gh auth status
+   ```
+
+3. **For Docker issues**, ensure Docker is running:
+   ```bash
+   docker --version
+   docker run hello-world
+   ```
+
+4. **For permission issues** with pip:
+   ```bash
+   pip install --user devhub  # Install for current user only
+   ```
+
+5. **For Python version conflicts**:
+   ```bash
+   python --version  # Should be 3.13+
+   pipx install devhub  # Isolated installation
+   ```
 
 ## ⚙️ Configuration
 
