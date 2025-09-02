@@ -1,26 +1,24 @@
 """Comprehensive tests for DevHub SDK module."""
 
-import asyncio
 import json
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 import pytest
-from returns.result import Failure, Success
+from returns.result import Failure
+from returns.result import Success
 
 from devhub.config import DevHubConfig
-from devhub.main import BundleData, JiraIssue, Repository, ReviewComment
-from devhub.sdk import (
-    ContextRequest,
-    DevHubAsyncClient,
-    DevHubClient,
-    SDKConfig,
-    StreamUpdate,
-    get_context_for_jira,
-    get_context_for_pr,
-    get_current_context,
-)
+from devhub.main import BundleData
+from devhub.main import JiraIssue
+from devhub.main import Repository
+from devhub.main import ReviewComment
+from devhub.sdk import ContextRequest
+from devhub.sdk import DevHubClient
+from devhub.sdk import SDKConfig
+from devhub.sdk import StreamUpdate
 
 
 class TestSDKConfig:
@@ -282,8 +280,10 @@ class TestDevHubClient:
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.get_current_branch") as mock_get_branch:
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.get_current_branch") as mock_get_branch,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_get_branch.return_value = Success("main")
 
@@ -314,8 +314,10 @@ class TestDevHubClient:
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.get_current_branch") as mock_get_branch:
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.get_current_branch") as mock_get_branch,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_get_branch.return_value = Failure("Branch error")
 
@@ -344,8 +346,10 @@ class TestDevHubClient:
         request = ContextRequest()
         repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.sdk.resolve_jira_key_with_config") as mock_resolve_jira, \
-             patch("devhub.sdk.resolve_pr_number") as mock_resolve_pr:
+        with (
+            patch("devhub.sdk.resolve_jira_key_with_config") as mock_resolve_jira,
+            patch("devhub.sdk.resolve_pr_number") as mock_resolve_pr,
+        ):
             mock_resolve_jira.return_value = "RESOLVED-123"
             mock_resolve_pr.return_value = Success(789)
 
@@ -353,9 +357,7 @@ class TestDevHubClient:
 
             assert jira_key == "RESOLVED-123"
             assert pr_number == 789
-            mock_resolve_jira.assert_called_once_with(
-                client._devhub_config, branch="feature/test", org_name="test-org"
-            )
+            mock_resolve_jira.assert_called_once_with(client._devhub_config, branch="feature/test", org_name="test-org")
 
     def test_resolve_identifiers_pr_resolution_failure(self):
         """Test _resolve_identifiers with PR resolution failure."""
@@ -364,8 +366,10 @@ class TestDevHubClient:
         request = ContextRequest()
         repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.sdk.resolve_jira_key_with_config") as mock_resolve_jira, \
-             patch("devhub.sdk.resolve_pr_number") as mock_resolve_pr:
+        with (
+            patch("devhub.sdk.resolve_jira_key_with_config") as mock_resolve_jira,
+            patch("devhub.sdk.resolve_pr_number") as mock_resolve_pr,
+        ):
             mock_resolve_jira.return_value = "RESOLVED-123"
             mock_resolve_pr.return_value = Failure("PR not found")
 
@@ -401,15 +405,14 @@ class TestDevHubClient:
         client._devhub_config = DevHubConfig()
 
         from devhub.main import BundleConfig
+
         bundle_config = BundleConfig()
         repo = Repository(owner="test", name="repo")
 
         with patch("devhub.sdk._gather_bundle_data") as mock_gather:
             mock_gather.return_value = Success('{"test": "data"}')
 
-            result = client._gather_data(
-                ContextRequest(), bundle_config, repo, "main", "TEST-123", 456
-            )
+            result = client._gather_data(ContextRequest(), bundle_config, repo, "main", "TEST-123", 456)
 
             assert isinstance(result, Success)
             assert result.unwrap() == '{"test": "data"}'
@@ -421,28 +424,30 @@ class TestDevHubClient:
         repo = Repository(owner="test", name="repo")
         request = ContextRequest()
 
-        json_result = json.dumps({
-            "jira": {
-                "key": "TEST-123",
-                "summary": "Test issue",
-                "description": "Test description",
-                "raw_data": {"id": "123"}
-            },
-            "pull_request": {"number": 456},
-            "diff": "test diff",
-            "comments": [
-                {
-                    "id": 1,
-                    "body": "Test comment",
-                    "path": "test.py",
-                    "author": "testuser",
-                    "created_at": "2023-01-01T00:00:00Z",
-                    "diff_hunk": "@@ -1,3 +1,3 @@",
-                    "resolved": False
-                }
-            ],
-            "metadata": {"version": "1.0"}
-        })
+        json_result = json.dumps(
+            {
+                "jira": {
+                    "key": "TEST-123",
+                    "summary": "Test issue",
+                    "description": "Test description",
+                    "raw_data": {"id": "123"},
+                },
+                "pull_request": {"number": 456},
+                "diff": "test diff",
+                "comments": [
+                    {
+                        "id": 1,
+                        "body": "Test comment",
+                        "path": "test.py",
+                        "author": "testuser",
+                        "created_at": "2023-01-01T00:00:00Z",
+                        "diff_hunk": "@@ -1,3 +1,3 @@",
+                        "resolved": False,
+                    }
+                ],
+                "metadata": {"version": "1.0"},
+            }
+        )
 
         result = client._process_result(json_result, repo, "main", request)
 
@@ -463,15 +468,12 @@ class TestDevHubClient:
         client = DevHubClient()
         client._devhub_config = DevHubConfig()
 
-        mock_jira_issue = JiraIssue(
-            key="TEST-123",
-            summary="Test issue",
-            description="Test description",
-            raw_data={}
-        )
+        mock_jira_issue = JiraIssue(key="TEST-123", summary="Test issue", description="Test description", raw_data={})
 
-        with patch("devhub.sdk.get_jira_credentials_from_config") as mock_get_creds, \
-             patch("devhub.sdk.fetch_jira_issue") as mock_fetch:
+        with (
+            patch("devhub.sdk.get_jira_credentials_from_config") as mock_get_creds,
+            patch("devhub.sdk.fetch_jira_issue") as mock_fetch,
+        ):
             mock_get_creds.return_value = ("user", "token", "https://test.atlassian.net")
             mock_fetch.return_value = Success(mock_jira_issue)
 
@@ -486,8 +488,10 @@ class TestDevHubClient:
         client = DevHubClient()
         client._devhub_config = DevHubConfig()
 
-        with patch("devhub.sdk.get_jira_credentials_from_config") as mock_get_creds, \
-             patch("devhub.sdk.get_jira_credentials") as mock_get_env_creds:
+        with (
+            patch("devhub.sdk.get_jira_credentials_from_config") as mock_get_creds,
+            patch("devhub.sdk.get_jira_credentials") as mock_get_env_creds,
+        ):
             mock_get_creds.return_value = None
             mock_get_env_creds.return_value = None
 
@@ -519,9 +523,11 @@ class TestDevHubClient:
         mock_pr_data = {"number": 123, "title": "Test PR"}
         mock_diff = "test diff content"
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.fetch_pr_details") as mock_fetch_pr, \
-             patch("devhub.sdk.fetch_pr_diff") as mock_fetch_diff:
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.fetch_pr_details") as mock_fetch_pr,
+            patch("devhub.sdk.fetch_pr_diff") as mock_fetch_diff,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_pr.return_value = Success(mock_pr_data.copy())
             mock_fetch_diff.return_value = Success(mock_diff)
@@ -541,8 +547,10 @@ class TestDevHubClient:
         mock_repo = Repository(owner="test", name="repo")
         mock_pr_data = {"number": 123, "title": "Test PR"}
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.fetch_pr_details") as mock_fetch_pr:
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.fetch_pr_details") as mock_fetch_pr,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_pr.return_value = Success(mock_pr_data)
 
@@ -580,12 +588,14 @@ class TestDevHubClient:
                 author="testuser",
                 created_at="2023-01-01T00:00:00Z",
                 diff_hunk="@@ -1,3 +1,3 @@",
-                resolved=False
+                resolved=False,
             ),
         )
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.fetch_unresolved_comments") as mock_fetch_comments:
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.fetch_unresolved_comments") as mock_fetch_comments,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_comments.return_value = Success(mock_comments)
 
@@ -614,9 +624,7 @@ class TestDevHubClient:
             mock_get_bundle.return_value = Success(mock_bundle_data)
 
             result = await client.get_current_branch_context(
-                include_diff=False,
-                include_comments=False,
-                comment_limit=10
+                include_diff=False, include_comments=False, comment_limit=10
             )
 
             assert isinstance(result, Success)
@@ -632,14 +640,12 @@ class TestDevHubClient:
         """Test stream_pr_updates."""
         client = DevHubClient()
 
-        mock_pr_data = {
-            "number": 123,
-            "title": "Test PR",
-            "updated_at": "2023-01-01T00:00:00Z"
-        }
+        mock_pr_data = {"number": 123, "title": "Test PR", "updated_at": "2023-01-01T00:00:00Z"}
 
-        with patch.object(client, "get_pr_details") as mock_get_pr, \
-             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with (
+            patch.object(client, "get_pr_details") as mock_get_pr,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             mock_get_pr.return_value = Success(mock_pr_data)
 
             # Create async generator and get first update
@@ -662,8 +668,7 @@ class TestDevHubClient:
         mock_process.returncode = 0
         mock_process.communicate.return_value = (b"output", b"")
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, \
-             patch("asyncio.wait_for") as mock_wait:
+        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
             mock_create_process.return_value = mock_process
             mock_wait.return_value = (b"output", b"")
 
@@ -681,8 +686,7 @@ class TestDevHubClient:
         mock_process.returncode = 1
         mock_process.communicate.return_value = (b"", b"error message")
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, \
-             patch("asyncio.wait_for") as mock_wait:
+        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
             mock_create_process.return_value = mock_process
             mock_wait.return_value = (b"", b"error message")
 
@@ -696,8 +700,7 @@ class TestDevHubClient:
         """Test execute_cli_command timeout."""
         client = DevHubClient()
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, \
-             patch("asyncio.wait_for") as mock_wait:
+        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
             mock_create_process.return_value = AsyncMock()
             mock_wait.side_effect = TimeoutError()
 
@@ -716,7 +719,7 @@ class TestDevHubClient:
                 "key": "TEST-123",
                 "summary": "Test issue",
                 "description": "Test description",
-                "raw_data": {"id": "123"}
+                "raw_data": {"id": "123"},
             },
             "pull_request": {"number": 456},
             "diff": "test diff",
@@ -728,10 +731,10 @@ class TestDevHubClient:
                     "author": "testuser",
                     "created_at": "2023-01-01T00:00:00Z",
                     "diff_hunk": "@@ -1,3 +1,3 @@",
-                    "resolved": False
+                    "resolved": False,
                 }
             ],
-            "metadata": {"version": "1.0"}
+            "metadata": {"version": "1.0"},
         }
 
         bundle_data = client._json_to_bundle_data(json_data, repo, "main")
@@ -853,10 +856,11 @@ class TestDevHubClient:
             include_comments=True,
         )
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.get_current_branch") as mock_get_branch, \
-             patch("devhub.sdk._gather_bundle_data") as mock_gather:
-
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.get_current_branch") as mock_get_branch,
+            patch("devhub.sdk._gather_bundle_data") as mock_gather,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_get_branch.return_value = Success("main")
             mock_gather.return_value = Success('{"test": "data"}')
@@ -874,10 +878,11 @@ class TestDevHubClient:
         mock_repo = Repository(owner="test", name="repo")
         request = ContextRequest()
 
-        with patch("devhub.sdk.get_repository_info") as mock_get_repo, \
-             patch("devhub.sdk.get_current_branch") as mock_get_branch, \
-             patch("devhub.sdk._gather_bundle_data") as mock_gather:
-
+        with (
+            patch("devhub.sdk.get_repository_info") as mock_get_repo,
+            patch("devhub.sdk.get_current_branch") as mock_get_branch,
+            patch("devhub.sdk._gather_bundle_data") as mock_gather,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_get_branch.return_value = Success("main")
             mock_gather.return_value = Failure("Gather failed")
@@ -916,17 +921,13 @@ class TestDevHubClient:
         client = DevHubClient()
         client._devhub_config = DevHubConfig()
 
-        mock_jira_issue = JiraIssue(
-            key="TEST-123",
-            summary="Test issue",
-            description="Test description",
-            raw_data={}
-        )
+        mock_jira_issue = JiraIssue(key="TEST-123", summary="Test issue", description="Test description", raw_data={})
 
-        with patch("devhub.sdk.get_jira_credentials_from_config") as mock_get_config_creds, \
-             patch("devhub.sdk.get_jira_credentials") as mock_get_env_creds, \
-             patch("devhub.sdk.fetch_jira_issue") as mock_fetch:
-
+        with (
+            patch("devhub.sdk.get_jira_credentials_from_config") as mock_get_config_creds,
+            patch("devhub.sdk.get_jira_credentials") as mock_get_env_creds,
+            patch("devhub.sdk.fetch_jira_issue") as mock_fetch,
+        ):
             mock_get_config_creds.return_value = None
             mock_get_env_creds.return_value = ("user", "token", "https://test.atlassian.net")
             mock_fetch.return_value = Success(mock_jira_issue)
@@ -971,8 +972,7 @@ class TestDevHubClient:
         mock_process.returncode = 0
         mock_process.communicate.return_value = (None, None)
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, \
-             patch("asyncio.wait_for") as mock_wait:
+        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
             mock_create_process.return_value = mock_process
             mock_wait.return_value = (None, None)
 
@@ -1001,19 +1001,20 @@ class TestDevHubClient:
 
         call_count = 0
 
-        async def mock_get_pr_details(pr_number):
+        async def mock_get_pr_details(pr_number: int) -> Success | Failure:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 # First call succeeds and returns update
                 return Success({"number": pr_number, "updated_at": "2023-01-01T00:00:00Z"})
-            else:
-                # Subsequent calls fail to test error handling
-                raise ValueError("Stream error")
+            # Subsequent calls fail to test error handling
+            msg = "Stream error"
+            raise ValueError(msg)
 
-        with patch.object(client, "get_pr_details", mock_get_pr_details), \
-             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-
+        with (
+            patch.object(client, "get_pr_details", mock_get_pr_details),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             updates = []
             stream = client.stream_pr_updates(123)
 
@@ -1026,4 +1027,3 @@ class TestDevHubClient:
 
             assert len(updates) == 1
             assert updates[0].update_type == "pr_updated"
-

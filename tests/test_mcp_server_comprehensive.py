@@ -1,25 +1,29 @@
 """Comprehensive tests for DevHub MCP Server module."""
 
-import argparse
 import asyncio
 import json
-from unittest.mock import AsyncMock, Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock
+from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
-from returns.result import Failure, Success
+from returns.result import Failure
+from returns.result import Success
 
-from devhub.config import DevHubConfig, JiraConfig, OrganizationConfig
-from devhub.main import BundleConfig, JiraCredentials, JiraIssue, Repository, ReviewComment
-from devhub.mcp_server import (
-    DevHubMCPServer,
-    _print_available_tools,
-    _test_configuration_loading,
-    _test_mcp_server,
-    _test_tools_listing,
-    _test_branch_context,
-    cli_main,
-    main,
-)
+from devhub.config import DevHubConfig
+from devhub.main import JiraCredentials
+from devhub.main import JiraIssue
+from devhub.main import Repository
+from devhub.main import ReviewComment
+from devhub.mcp_server import DevHubMCPServer
+from devhub.mcp_server import _print_available_tools
+from devhub.mcp_server import _test_branch_context
+from devhub.mcp_server import _test_configuration_loading
+from devhub.mcp_server import _test_mcp_server
+from devhub.mcp_server import _test_tools_listing
+from devhub.mcp_server import cli_main
+from devhub.mcp_server import main
 
 
 class TestDevHubMCPServer:
@@ -87,7 +91,7 @@ class TestDevHubMCPServer:
         mock_bundle_data = {
             "jira": {"key": "TEST-123", "summary": "Test issue"},
             "pull_request": {"number": 456, "title": "Test PR"},
-            "metadata": {"repository": {"owner": "test", "name": "repo"}}
+            "metadata": {"repository": {"owner": "test", "name": "repo"}},
         }
 
         with patch.object(server, "_get_bundle_context") as mock_get_bundle:
@@ -97,10 +101,7 @@ class TestDevHubMCPServer:
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {
-                    "name": "get-bundle-context",
-                    "arguments": {"jira_key": "TEST-123", "pr_number": 456}
-                }
+                "params": {"name": "get-bundle-context", "arguments": {"jira_key": "TEST-123", "pr_number": 456}},
             }
 
             response = await server.handle_request(request)
@@ -131,10 +132,7 @@ class TestDevHubMCPServer:
                 "jsonrpc": "2.0",
                 "id": 4,
                 "method": "tools/call",
-                "params": {
-                    "name": "get-jira-issue",
-                    "arguments": {"jira_key": "TEST-123"}
-                }
+                "params": {"name": "get-jira-issue", "arguments": {"jira_key": "TEST-123"}},
             }
 
             response = await server.handle_request(request)
@@ -156,10 +154,7 @@ class TestDevHubMCPServer:
             "jsonrpc": "2.0",
             "id": 5,
             "method": "tools/call",
-            "params": {
-                "name": "unknown-tool",
-                "arguments": {}
-            }
+            "params": {"name": "unknown-tool", "arguments": {}},
         }
 
         response = await server.handle_request(request)
@@ -229,10 +224,7 @@ class TestDevHubMCPServer:
                 "jsonrpc": "2.0",
                 "id": 9,
                 "method": "tools/call",
-                "params": {
-                    "name": "get-bundle-context",
-                    "arguments": {}
-                }
+                "params": {"name": "get-bundle-context", "arguments": {}},
             }
 
             response = await server.handle_request(request)
@@ -259,11 +251,7 @@ class TestDevHubMCPServer:
         """Test bundle config creation with custom values."""
         server = DevHubMCPServer()
 
-        kwargs = {
-            "include_diff": False,
-            "include_comments": False,
-            "comment_limit": 50
-        }
+        kwargs = {"include_diff": False, "include_comments": False, "comment_limit": 50}
 
         config = server._build_bundle_config_from_kwargs(kwargs)
 
@@ -277,17 +265,19 @@ class TestDevHubMCPServer:
         """Test bundle config creation with None values."""
         server = DevHubMCPServer()
 
-        kwargs = {
-            "include_diff": None,
-            "include_comments": None,
-            "comment_limit": None
-        }
+        kwargs = {"include_diff": None, "include_comments": None, "comment_limit": None}
 
         config = server._build_bundle_config_from_kwargs(kwargs)
 
         assert config.include_diff is True  # Should default to True when None
         assert config.include_comments is True
         assert config.limit == 20
+
+    def test_build_bundle_config_from_kwargs_string_limit(self):
+        """Test bundle config creation with string comment_limit."""
+        server = DevHubMCPServer()
+        config = server._build_bundle_config_from_kwargs({"comment_limit": "30"})
+        assert config.limit == 30
 
     def test_parse_identifiers_with_values(self):
         """Test identifier parsing with provided values."""
@@ -329,15 +319,23 @@ class TestDevHubMCPServer:
         assert jira_key is None
         assert pr_number is None
 
+    def test_parse_identifiers_numeric_jira_key(self):
+        """Test identifier parsing coerces jira_key to string."""
+        server = DevHubMCPServer()
+        jira_key, pr_number = server._parse_identifiers({"jira_key": 123, "pr_number": None})
+        assert jira_key == "123"
+        assert pr_number is None
+
     def test_get_repo_and_branch_success(self):
         """Test successful repo and branch retrieval."""
         server = DevHubMCPServer()
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.get_current_branch") as mock_get_branch:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.get_current_branch") as mock_get_branch,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_get_branch.return_value = Success("main")
 
@@ -362,9 +360,10 @@ class TestDevHubMCPServer:
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.get_current_branch") as mock_get_branch:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.get_current_branch") as mock_get_branch,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_get_branch.return_value = Failure("Branch error")
 
@@ -436,10 +435,11 @@ class TestDevHubMCPServer:
         mock_repo = Repository(owner="test", name="repo")
         mock_bundle_result = '{"jira": {"key": "TEST-123"}, "metadata": {}}'
 
-        with patch("devhub.mcp_server.load_config_with_environment") as mock_load_config, \
-             patch.object(server, "_get_repo_and_branch") as mock_get_repo_branch, \
-             patch("devhub.mcp_server._gather_bundle_data") as mock_gather:
-
+        with (
+            patch("devhub.mcp_server.load_config_with_environment") as mock_load_config,
+            patch.object(server, "_get_repo_and_branch") as mock_get_repo_branch,
+            patch("devhub.mcp_server._gather_bundle_data") as mock_gather,
+        ):
             mock_load_config.return_value = Success(DevHubConfig())
             mock_get_repo_branch.return_value = (mock_repo, "main")
             mock_gather.return_value = Success(mock_bundle_result)
@@ -455,10 +455,11 @@ class TestDevHubMCPServer:
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.mcp_server.load_config_with_environment") as mock_load_config, \
-             patch.object(server, "_get_repo_and_branch") as mock_get_repo_branch, \
-             patch("devhub.mcp_server._gather_bundle_data") as mock_gather:
-
+        with (
+            patch("devhub.mcp_server.load_config_with_environment") as mock_load_config,
+            patch.object(server, "_get_repo_and_branch") as mock_get_repo_branch,
+            patch("devhub.mcp_server._gather_bundle_data") as mock_gather,
+        ):
             mock_load_config.return_value = Success(DevHubConfig())
             mock_get_repo_branch.return_value = (mock_repo, "main")
             mock_gather.return_value = Failure("Gather failed")
@@ -471,23 +472,17 @@ class TestDevHubMCPServer:
         """Test successful Jira issue retrieval."""
         server = DevHubMCPServer()
 
-        mock_issue = JiraIssue(
-            key="TEST-123",
-            summary="Test issue",
-            description="Test description",
-            raw_data={}
-        )
+        mock_issue = JiraIssue(key="TEST-123", summary="Test issue", description="Test description", raw_data={})
 
         mock_credentials = JiraCredentials(
-            base_url="https://test.atlassian.net",
-            email="test@example.com",
-            api_token="test-token"
+            base_url="https://test.atlassian.net", email="test@example.com", api_token="test-token"
         )
 
-        with patch("devhub.mcp_server.load_config_with_environment") as mock_load_config, \
-             patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_get_config_creds, \
-             patch("devhub.mcp_server.fetch_jira_issue") as mock_fetch:
-
+        with (
+            patch("devhub.mcp_server.load_config_with_environment") as mock_load_config,
+            patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_get_config_creds,
+            patch("devhub.mcp_server.fetch_jira_issue") as mock_fetch,
+        ):
             mock_load_config.return_value = Success(DevHubConfig())
             mock_get_config_creds.return_value = mock_credentials
             mock_fetch.return_value = Success(mock_issue)
@@ -502,10 +497,11 @@ class TestDevHubMCPServer:
         """Test Jira issue retrieval with no credentials."""
         server = DevHubMCPServer()
 
-        with patch("devhub.mcp_server.load_config_with_environment") as mock_load_config, \
-             patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_get_config_creds, \
-             patch("devhub.mcp_server.get_jira_credentials") as mock_get_env_creds:
-
+        with (
+            patch("devhub.mcp_server.load_config_with_environment") as mock_load_config,
+            patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_get_config_creds,
+            patch("devhub.mcp_server.get_jira_credentials") as mock_get_env_creds,
+        ):
             mock_load_config.return_value = Success(DevHubConfig())
             mock_get_config_creds.return_value = None
             mock_get_env_creds.return_value = None
@@ -519,15 +515,14 @@ class TestDevHubMCPServer:
         server = DevHubMCPServer()
 
         mock_credentials = JiraCredentials(
-            base_url="https://test.atlassian.net",
-            email="test@example.com",
-            api_token="test-token"
+            base_url="https://test.atlassian.net", email="test@example.com", api_token="test-token"
         )
 
-        with patch("devhub.mcp_server.load_config_with_environment") as mock_load_config, \
-             patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_get_config_creds, \
-             patch("devhub.mcp_server.fetch_jira_issue") as mock_fetch:
-
+        with (
+            patch("devhub.mcp_server.load_config_with_environment") as mock_load_config,
+            patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_get_config_creds,
+            patch("devhub.mcp_server.fetch_jira_issue") as mock_fetch,
+        ):
             mock_load_config.return_value = Success(DevHubConfig())
             mock_get_config_creds.return_value = mock_credentials
             mock_fetch.return_value = Failure("Fetch failed")
@@ -544,10 +539,11 @@ class TestDevHubMCPServer:
         mock_pr_data = {"number": 123, "title": "Test PR"}
         mock_diff = "test diff content"
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.fetch_pr_details") as mock_fetch_pr, \
-             patch("devhub.mcp_server.fetch_pr_diff") as mock_fetch_diff:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.fetch_pr_details") as mock_fetch_pr,
+            patch("devhub.mcp_server.fetch_pr_diff") as mock_fetch_diff,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_pr.return_value = Success(mock_pr_data.copy())
             mock_fetch_diff.return_value = Success(mock_diff)
@@ -566,9 +562,10 @@ class TestDevHubMCPServer:
         mock_repo = Repository(owner="test", name="repo")
         mock_pr_data = {"number": 123, "title": "Test PR"}
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.fetch_pr_details") as mock_fetch_pr:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.fetch_pr_details") as mock_fetch_pr,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_pr.return_value = Success(mock_pr_data)
 
@@ -596,9 +593,10 @@ class TestDevHubMCPServer:
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.fetch_pr_details") as mock_fetch_pr:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.fetch_pr_details") as mock_fetch_pr,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_pr.return_value = Failure("Fetch failed")
 
@@ -619,13 +617,14 @@ class TestDevHubMCPServer:
                 author="reviewer",
                 created_at="2024-01-01T00:00:00Z",
                 diff_hunk="@@ -1,3 +1,3 @@",
-                resolved=False
+                resolved=False,
             ),
         )
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.fetch_unresolved_comments") as mock_fetch_comments:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.fetch_unresolved_comments") as mock_fetch_comments,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_comments.return_value = Success(mock_comments)
 
@@ -643,9 +642,10 @@ class TestDevHubMCPServer:
 
         mock_repo = Repository(owner="test", name="repo")
 
-        with patch("devhub.mcp_server.get_repository_info") as mock_get_repo, \
-             patch("devhub.mcp_server.fetch_unresolved_comments") as mock_fetch_comments:
-
+        with (
+            patch("devhub.mcp_server.get_repository_info") as mock_get_repo,
+            patch("devhub.mcp_server.fetch_unresolved_comments") as mock_fetch_comments,
+        ):
             mock_get_repo.return_value = Success(mock_repo)
             mock_fetch_comments.return_value = Failure("Fetch failed")
 
@@ -747,11 +747,7 @@ class TestMCPServerUtilities:
         """Test branch context test function with error response."""
         server = DevHubMCPServer()
 
-        mock_response = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "error": {"code": -32603, "message": "Test error"}
-        }
+        mock_response = {"jsonrpc": "2.0", "id": 2, "error": {"code": -32603, "message": "Test error"}}
 
         with patch.object(server, "handle_request") as mock_handle:
             mock_handle.return_value = mock_response
@@ -792,10 +788,11 @@ class TestMCPServerUtilities:
     @patch("builtins.print")
     async def test_test_mcp_server(self, mock_print):
         """Test MCP server test function."""
-        with patch("devhub.mcp_server._test_tools_listing") as mock_test_tools, \
-             patch("devhub.mcp_server._test_branch_context") as mock_test_branch, \
-             patch("devhub.mcp_server._test_configuration_loading") as mock_test_config:
-
+        with (
+            patch("devhub.mcp_server._test_tools_listing") as mock_test_tools,
+            patch("devhub.mcp_server._test_branch_context") as mock_test_branch,
+            patch("devhub.mcp_server._test_configuration_loading") as mock_test_config,
+        ):
             await _test_mcp_server()
 
             # Verify all test functions were called
@@ -821,17 +818,18 @@ class TestMCPServerMain:
         # Mock stdin to return request then empty line to break loop
         mock_stdin_lines = [json.dumps(mock_request), ""]
 
-        with patch("sys.stdin") as mock_stdin, \
-             patch("builtins.print") as mock_print, \
-             patch("asyncio.get_event_loop") as mock_get_loop:
-
+        with (
+            patch("sys.stdin") as mock_stdin,
+            patch("builtins.print") as mock_print,
+            patch("asyncio.get_event_loop") as mock_get_loop,
+        ):
             # Setup readline to return lines then empty string to break loop
             mock_stdin.readline.side_effect = mock_stdin_lines
 
             # Mock the event loop
             mock_loop = Mock()
 
-            def mock_run_in_executor(executor, func):
+            def mock_run_in_executor(executor: Any, func: Any) -> Any:
                 # Return the next line from our mock stdin
                 return asyncio.create_task(asyncio.coroutine(lambda: mock_stdin.readline())())
 
@@ -853,10 +851,11 @@ class TestMCPServerMain:
     @pytest.mark.asyncio
     async def test_main_function_exception_handling(self):
         """Test main function exception handling."""
-        with patch("sys.stdin") as mock_stdin, \
-             patch("builtins.print") as mock_print, \
-             patch("asyncio.get_event_loop") as mock_get_loop:
-
+        with (
+            patch("sys.stdin") as mock_stdin,
+            patch("builtins.print") as mock_print,
+            patch("asyncio.get_event_loop") as mock_get_loop,
+        ):
             # Setup mocks to cause exception then empty string to break loop
             mock_stdin.readline.side_effect = ["invalid json", ""]
 
@@ -876,34 +875,33 @@ class TestMCPServerMain:
 
     def test_cli_main_tools_option(self):
         """Test CLI main with --tools option."""
-        with patch("sys.argv", ["devhub-mcp", "--tools"]), \
-             patch("devhub.mcp_server._print_available_tools") as mock_print_tools:
-
+        with (
+            patch("sys.argv", ["devhub-mcp", "--tools"]),
+            patch("devhub.mcp_server._print_available_tools") as mock_print_tools,
+        ):
             cli_main()
 
             mock_print_tools.assert_called_once()
 
     def test_cli_main_test_option(self):
         """Test CLI main with --test option."""
-        with patch("sys.argv", ["devhub-mcp", "--test"]), \
-             patch("asyncio.run") as mock_asyncio_run:
-
+        with patch("sys.argv", ["devhub-mcp", "--test"]), patch("asyncio.run") as mock_asyncio_run:
             cli_main()
 
             mock_asyncio_run.assert_called_once()
 
     def test_cli_main_version_option(self):
         """Test CLI main with --version option."""
-        with patch("sys.argv", ["devhub-mcp", "--version"]):
-            with pytest.raises(SystemExit):
-                cli_main()
+        with patch("sys.argv", ["devhub-mcp", "--version"]), pytest.raises(SystemExit):
+            cli_main()
 
     def test_cli_main_server_mode(self):
         """Test CLI main in server mode (default)."""
-        with patch("sys.argv", ["devhub-mcp"]), \
-             patch("logging.basicConfig") as mock_logging, \
-             patch("asyncio.run") as mock_asyncio_run:
-
+        with (
+            patch("sys.argv", ["devhub-mcp"]),
+            patch("logging.basicConfig") as mock_logging,
+            patch("asyncio.run") as mock_asyncio_run,
+        ):
             cli_main()
 
             mock_logging.assert_called_once()
@@ -911,10 +909,11 @@ class TestMCPServerMain:
 
     def test_cli_main_explicit_server_mode(self):
         """Test CLI main with explicit --server option."""
-        with patch("sys.argv", ["devhub-mcp", "--server"]), \
-             patch("logging.basicConfig") as mock_logging, \
-             patch("asyncio.run") as mock_asyncio_run:
-
+        with (
+            patch("sys.argv", ["devhub-mcp", "--server"]),
+            patch("logging.basicConfig") as mock_logging,
+            patch("asyncio.run") as mock_asyncio_run,
+        ):
             cli_main()
 
             mock_logging.assert_called_once()

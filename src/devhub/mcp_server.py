@@ -497,7 +497,7 @@ async def main() -> None:
     # Read from stdin and write to stdout for MCP communication
     while True:
         try:
-            line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
+            line = await asyncio.get_event_loop().run_in_executor(None, lambda: sys.stdin.readline())
             if not line:
                 break
 

@@ -16,6 +16,7 @@ Optional environment variables for Jira:
 
 import argparse
 import base64
+import contextlib
 import datetime as dt
 import json
 import logging
@@ -25,7 +26,6 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
@@ -396,17 +396,11 @@ def get_current_branch() -> Result[str, str]:
     return run_command(["git", "branch", "--show-current"]).bind(_extract_branch)
 
 
-def _parse_pr_number_from_output(proc: subprocess.CompletedProcess[str]) -> Result[int | None, str]:
-    """Parse PR number from command output, handling both single numbers and JSON."""
-    output = proc.stdout.strip()
-    if not output:
-        return Success(None)
-
-    # Try to parse as JSON first (for search results)
+def _parse_json_pr_number(output: str) -> Result[int | None, str]:
+    """Parse PR number from JSON output."""
     try:
         data = json.loads(output)
         if isinstance(data, dict) and "items" in data:
-            # This is a search response
             items = data.get("items", [])
             if not items:
                 return Success(None)
@@ -415,23 +409,39 @@ def _parse_pr_number_from_output(proc: subprocess.CompletedProcess[str]) -> Resu
             if pr_number is None:
                 return Failure("No PR number found in search results")
             return Success(pr_number)
-        elif isinstance(data, list):
-            # This might be a list response, but we expect single results
+        if isinstance(data, list):
             return Success(None)
     except json.JSONDecodeError:
-        # Not JSON, try as simple number (for direct PR lookups)
         pass
+    return Success(None)
 
-    # Try to parse as simple number (for direct PR lookups)
+
+def _parse_simple_pr_number(output: str) -> Result[int | None, str]:
+    """Parse PR number from simple text output."""
     lines = output.splitlines()
     if lines:
         try:
             return Success(int(lines[0]))
         except ValueError:
-            # If it's not a number, might be empty or malformed
             return Success(None)
-
     return Success(None)
+
+
+def _parse_pr_number_from_output(proc: subprocess.CompletedProcess[str]) -> Result[int | None, str]:
+    """Parse PR number from command output, handling both single numbers and JSON."""
+    output = proc.stdout.strip()
+    if not output:
+        return Success(None)
+
+    # Try JSON first
+    json_result = _parse_json_pr_number(output)
+    if isinstance(json_result, Success) and json_result.unwrap() is not None:
+        return json_result
+    if isinstance(json_result, Failure):
+        return json_result
+
+    # Try simple number
+    return _parse_simple_pr_number(output)
 
 
 def find_pr_by_branch(repo: Repository, branch: str) -> Result[int | None, str]:
@@ -694,7 +704,7 @@ def fetch_jira_issue(credentials: JiraCredentials, key: str) -> Result[JiraIssue
         case _:
             pass
 
-    # Fallback: urllib
+    # urllib fallback for proper HTTP error handling
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"Basic {auth_header}")
     req.add_header("Accept", "application/json")
@@ -741,6 +751,40 @@ def _parse_json_response(json_str: str) -> Result[dict[str, Any], str]:
 # -----------------------------
 
 
+def _try_find_pr_by_branch(repo: "Repository", branch: str | None) -> Result[int | None, str]:
+    """Try to find PR by branch name."""
+    if not branch:
+        return Success(None)
+
+    result = find_pr_by_branch(repo, branch)
+    match result:
+        case Success(number) if number:
+            return Success(number)
+        case Success(None):
+            return Success(None)
+        case Failure(error):
+            return Failure(error)
+        case _:
+            return Success(None)
+
+
+def _try_find_pr_by_jira_key(repo: "Repository", jira_key: str | None) -> Result[int | None, str]:
+    """Try to find PR by Jira key."""
+    if not jira_key:
+        return Success(None)
+
+    result = find_pr_by_jira_key(repo, jira_key)
+    match result:
+        case Success(number) if number:
+            return Success(number)
+        case Success(None):
+            return Failure(f"No PR found for Jira key: {jira_key}")
+        case Failure(error):
+            return Failure(error)
+        case _:
+            return Success(None)
+
+
 def resolve_pr_number(
     repo: "Repository",
     pr_number: int | None,
@@ -751,31 +795,15 @@ def resolve_pr_number(
     if pr_number:
         return Success(pr_number)
 
-    if branch:
-        result = find_pr_by_branch(repo, branch)
-        match result:
-            case Success(number) if number:
-                return Success(number)
-            case Success(None):
-                pass  # Continue to next strategy
-            case Failure(error):
-                return Failure(error)
-            case _:
-                pass
+    # Try branch first
+    branch_result = _try_find_pr_by_branch(repo, branch)
+    if isinstance(branch_result, Success) and branch_result.unwrap() is not None:
+        return branch_result
+    if isinstance(branch_result, Failure):
+        return branch_result
 
-    if jira_key:
-        result = find_pr_by_jira_key(repo, jira_key)
-        match result:
-            case Success(number) if number:
-                return Success(number)
-            case Success(None):
-                return Failure(f"No PR found for Jira key: {jira_key}")
-            case Failure(error):
-                return Failure(error)
-            case _:
-                pass
-
-    return Success(None)
+    # Try Jira key if branch didn't work
+    return _try_find_pr_by_jira_key(repo, jira_key)
 
 
 def collect_jira_data(
@@ -805,8 +833,96 @@ def collect_unresolved_comments(
     return fetch_unresolved_comments(repo, pr_number, limit)
 
 
+def _process_jira_data(
+    config: BundleConfig,
+    jira_key: str | None,
+    include_content: bool,
+    devhub_config: DevHubConfig,
+    bundle: BundleData,
+) -> Result[BundleData, str]:
+    """Process Jira data for bundle."""
+    if not (config.include_jira and jira_key and include_content):
+        return Success(bundle)
+
+    creds = get_jira_credentials_from_config(devhub_config, config.organization) or get_jira_credentials()
+    if not creds:
+        return Success(bundle)
+
+    jira_res = collect_jira_data(creds, jira_key)
+    if isinstance(jira_res, Failure):
+        return Failure(f"Failed to fetch Jira data: {jira_res.failure()}")
+
+    return Success(BundleData(
+        jira_issue=jira_res.unwrap(),
+        pr_data=bundle.pr_data,
+        pr_diff=bundle.pr_diff,
+        comments=bundle.comments,
+        repository=bundle.repository,
+        branch=bundle.branch,
+        metadata=bundle.metadata,
+    ))
+
+
+def _process_pr_data(
+    config: BundleConfig,
+    pr_number: int | None,
+    include_content: bool,
+    repo: Repository,
+    bundle: BundleData,
+) -> Result[BundleData, str]:
+    """Process PR data for bundle."""
+    if not (config.include_pr and pr_number and include_content):
+        return Success(bundle)
+
+    pr_res = collect_pr_data(repo, pr_number)
+    if isinstance(pr_res, Failure):
+        return Failure(f"Failed to fetch PR data: {pr_res.failure()}")
+
+    updated_bundle = BundleData(
+        jira_issue=bundle.jira_issue,
+        pr_data=pr_res.unwrap(),
+        pr_diff=bundle.pr_diff,
+        comments=bundle.comments,
+        repository=bundle.repository,
+        branch=bundle.branch,
+        metadata=bundle.metadata,
+    )
+
+    # Add diff if requested
+    if config.include_diff:
+        diff_res = collect_pr_diff(pr_number)
+        if isinstance(diff_res, Failure):
+            return Failure(f"Failed to fetch PR diff: {diff_res.failure()}")
+        updated_bundle = BundleData(
+            jira_issue=updated_bundle.jira_issue,
+            pr_data=updated_bundle.pr_data,
+            pr_diff=diff_res.unwrap(),
+            comments=updated_bundle.comments,
+            repository=updated_bundle.repository,
+            branch=updated_bundle.branch,
+            metadata=updated_bundle.metadata,
+        )
+
+    # Add comments if requested
+    if config.include_comments:
+        comments_res = collect_unresolved_comments(repo, pr_number, config.limit)
+        if isinstance(comments_res, Failure):
+            return Failure(f"Failed to fetch comments: {comments_res.failure()}")
+        updated_bundle = BundleData(
+            jira_issue=updated_bundle.jira_issue,
+            pr_data=updated_bundle.pr_data,
+            pr_diff=updated_bundle.pr_diff,
+            comments=comments_res.unwrap(),
+            repository=updated_bundle.repository,
+            branch=updated_bundle.branch,
+            metadata=updated_bundle.metadata,
+        )
+
+    return Success(updated_bundle)
+
+
 def _gather_bundle_data(
-    args: Any,
+    args: argparse.Namespace,
     config: BundleConfig,
     repo: Repository,
     branch: str | None,
@@ -821,70 +937,87 @@ def _gather_bundle_data(
     bundle = BundleData(repository=repo, branch=branch)
     include_content = not getattr(args, "metadata_only", False)
 
-    # Jira
-    if config.include_jira and jira_key and include_content:
-        creds = get_jira_credentials_from_config(devhub_config, config.organization) or get_jira_credentials()
-        if creds:
-            jira_res = collect_jira_data(creds, jira_key)
-            if isinstance(jira_res, Failure):
-                return Failure(f"Failed to fetch Jira data: {jira_res.failure()}")
-            bundle = BundleData(
-                jira_issue=jira_res.unwrap(),
-                pr_data=bundle.pr_data,
-                pr_diff=bundle.pr_diff,
-                comments=bundle.comments,
-                repository=bundle.repository,
-                branch=bundle.branch,
-                metadata=bundle.metadata,
-            )
+    # Process Jira data
+    jira_result = _process_jira_data(config, jira_key, include_content, devhub_config, bundle)
+    if isinstance(jira_result, Failure):
+        return jira_result
+    bundle = jira_result.unwrap()
 
-    # PR
-    if config.include_pr and pr_number and include_content:
-        pr_res = collect_pr_data(repo, pr_number)
-        if isinstance(pr_res, Failure):
-            return Failure(f"Failed to fetch PR data: {pr_res.failure()}")
-        bundle = BundleData(
-            jira_issue=bundle.jira_issue,
-            pr_data=pr_res.unwrap(),
-            pr_diff=bundle.pr_diff,
-            comments=bundle.comments,
-            repository=bundle.repository,
-            branch=bundle.branch,
-            metadata=bundle.metadata,
-        )
-
-        # Diff
-        if config.include_diff:
-            diff_res = collect_pr_diff(pr_number)
-            if isinstance(diff_res, Failure):
-                return Failure(f"Failed to fetch PR diff: {diff_res.failure()}")
-            bundle = BundleData(
-                jira_issue=bundle.jira_issue,
-                pr_data=bundle.pr_data,
-                pr_diff=diff_res.unwrap(),
-                comments=bundle.comments,
-                repository=bundle.repository,
-                branch=bundle.branch,
-                metadata=bundle.metadata,
-            )
-
-        # Comments
-        if config.include_comments:
-            comments_res = collect_unresolved_comments(repo, pr_number, config.limit)
-            if isinstance(comments_res, Failure):
-                return Failure(f"Failed to fetch comments: {comments_res.failure()}")
-            bundle = BundleData(
-                jira_issue=bundle.jira_issue,
-                pr_data=bundle.pr_data,
-                pr_diff=bundle.pr_diff,
-                comments=comments_res.unwrap(),
-                repository=bundle.repository,
-                branch=bundle.branch,
-                metadata=bundle.metadata,
-            )
+    # Process PR data
+    pr_result = _process_pr_data(config, pr_number, include_content, repo, bundle)
+    if isinstance(pr_result, Failure):
+        return pr_result
+    bundle = pr_result.unwrap()
 
     fmt = getattr(args, "format", "json")
     return Success(format_json_output(bundle.to_dict(include_content=include_content), fmt))
+
+
+def _save_jira_files(bundle_data: BundleData, output_paths: OutputPaths) -> Result[None, str]:
+    """Save Jira-related files."""
+    if not bundle_data.jira_issue:
+        return Success(None)
+
+    jira_key = bundle_data.jira_issue.key
+    jira_json_result = write_json_file(output_paths.jira_json(jira_key), bundle_data.jira_issue.raw_data)
+    if isinstance(jira_json_result, Failure):
+        return jira_json_result
+
+    # Create Jira markdown file
+    jira_md_content = f"# Jira Issue: {jira_key}\n\n"
+    jira_md_content += f"**Summary:** {bundle_data.jira_issue.summary}\n\n"
+    if bundle_data.jira_issue.description:
+        jira_md_content += f"**Description:**\n{bundle_data.jira_issue.description}\n\n"
+
+    return write_text_file(output_paths.jira_md(jira_key), jira_md_content)
+
+
+def _save_pr_files(bundle_data: BundleData, output_paths: OutputPaths) -> Result[None, str]:
+    """Save PR-related files."""
+    if not bundle_data.pr_data:
+        return Success(None)
+
+    pr_number = bundle_data.pr_data.get("number", 0)
+    pr_json_result = write_json_file(output_paths.pr_json(pr_number), bundle_data.pr_data)
+    if isinstance(pr_json_result, Failure):
+        return pr_json_result
+
+    # Create PR markdown file
+    pr_md_content = f"# Pull Request #{pr_number}\n\n"
+    pr_md_content += f"**Title:** {bundle_data.pr_data.get('title', 'N/A')}\n\n"
+    pr_md_content += f"**URL:** {bundle_data.pr_data.get('html_url', 'N/A')}\n\n"
+    if bundle_data.pr_data.get("body"):
+        pr_md_content += f"**Description:**\n{bundle_data.pr_data['body']}\n\n"
+
+    pr_md_result = write_text_file(output_paths.pr_md(pr_number), pr_md_content)
+    if isinstance(pr_md_result, Failure):
+        return pr_md_result
+
+    # Save PR diff if available
+    if bundle_data.pr_diff:
+        diff_result = write_text_file(output_paths.pr_diff(pr_number), bundle_data.pr_diff)
+        if isinstance(diff_result, Failure):
+            return diff_result
+
+    # Save comments if available
+    if bundle_data.comments:
+        comments_data = [
+            {
+                "id": comment.id,
+                "body": comment.body,
+                "path": comment.path,
+                "author": comment.author,
+                "created_at": comment.created_at,
+                "diff_hunk": comment.diff_hunk,
+                "resolved": comment.resolved,
+            }
+            for comment in bundle_data.comments
+        ]
+        comments_result = write_json_file(output_paths.comments_json(pr_number), comments_data)
+        if isinstance(comments_result, Failure):
+            return comments_result
+
+    return Success(None)
 
 
 def save_bundle_files(
@@ -904,66 +1037,13 @@ def save_bundle_files(
     if isinstance(json_result, Failure):
         return json_result
 
-    # Save Jira data if available
-    if bundle_data.jira_issue:
-        jira_key = bundle_data.jira_issue.key
-        jira_json_result = write_json_file(output_paths.jira_json(jira_key), bundle_data.jira_issue.raw_data)
-        if isinstance(jira_json_result, Failure):
-            return jira_json_result
+    # Save Jira files
+    jira_result = _save_jira_files(bundle_data, output_paths)
+    if isinstance(jira_result, Failure):
+        return jira_result
 
-        # Create Jira markdown file
-        jira_md_content = f"# Jira Issue: {jira_key}\n\n"
-        jira_md_content += f"**Summary:** {bundle_data.jira_issue.summary}\n\n"
-        if bundle_data.jira_issue.description:
-            jira_md_content += f"**Description:**\n{bundle_data.jira_issue.description}\n\n"
-
-        jira_md_result = write_text_file(output_paths.jira_md(jira_key), jira_md_content)
-        if isinstance(jira_md_result, Failure):
-            return jira_md_result
-
-    # Save PR data if available
-    if bundle_data.pr_data:
-        pr_number = bundle_data.pr_data.get("number", 0)
-        pr_json_result = write_json_file(output_paths.pr_json(pr_number), bundle_data.pr_data)
-        if isinstance(pr_json_result, Failure):
-            return pr_json_result
-
-        # Create PR markdown file
-        pr_md_content = f"# Pull Request #{pr_number}\n\n"
-        pr_md_content += f"**Title:** {bundle_data.pr_data.get('title', 'N/A')}\n\n"
-        pr_md_content += f"**URL:** {bundle_data.pr_data.get('html_url', 'N/A')}\n\n"
-        if bundle_data.pr_data.get("body"):
-            pr_md_content += f"**Description:**\n{bundle_data.pr_data['body']}\n\n"
-
-        pr_md_result = write_text_file(output_paths.pr_md(pr_number), pr_md_content)
-        if isinstance(pr_md_result, Failure):
-            return pr_md_result
-
-        # Save PR diff if available
-        if bundle_data.pr_diff:
-            diff_result = write_text_file(output_paths.pr_diff(pr_number), bundle_data.pr_diff)
-            if isinstance(diff_result, Failure):
-                return diff_result
-
-        # Save comments if available
-        if bundle_data.comments:
-            comments_data = [
-                {
-                    "id": comment.id,
-                    "body": comment.body,
-                    "path": comment.path,
-                    "author": comment.author,
-                    "created_at": comment.created_at,
-                    "diff_hunk": comment.diff_hunk,
-                    "resolved": comment.resolved,
-                }
-                for comment in bundle_data.comments
-            ]
-            comments_result = write_json_file(output_paths.comments_json(pr_number), comments_data)
-            if isinstance(comments_result, Failure):
-                return comments_result
-
-    return Success(None)
+    # Save PR files
+    return _save_pr_files(bundle_data, output_paths)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -996,29 +1076,43 @@ def create_parser() -> argparse.ArgumentParser:
     bundle_parser.add_argument("--no-comments", action="store_true", help="Exclude unresolved comments")
 
     # Doctor command
-    doctor_parser = subparsers.add_parser("doctor", help="Run health checks and verify DevHub installation")
+    subparsers.add_parser("doctor", help="Run health checks and verify DevHub installation")
 
     return parser
 
 
-def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
-    """Handle bundle command."""
-    # Load configuration
+def _setup_bundle_config(args: argparse.Namespace) -> tuple[DevHubConfig, BundleConfig]:
+    """Set up configuration for bundle command."""
     config_path = getattr(args, "config", None)
     if not isinstance(config_path, (str, os.PathLike)):
         config_path = None
     cfg_result = load_config_with_environment(config_path)
     devhub_config = cfg_result.unwrap() if isinstance(cfg_result, Success) else DevHubConfig()
 
+    organization = getattr(args, "organization", None)
+    bundle_config = BundleConfig(
+        include_jira=not getattr(args, "no_jira", False),
+        include_pr=not getattr(args, "no_pr", False),
+        include_diff=not getattr(args, "no_diff", False),
+        include_comments=not getattr(args, "no_comments", False),
+        limit=getattr(args, "limit", 10),
+        organization=organization,
+    )
+
+    return devhub_config, bundle_config
+
+
+def _resolve_repo_and_branch(args: argparse.Namespace) -> Result[tuple[Repository, str | None], str]:
+    """Resolve repository and branch information."""
     # Check git repository
     git_result = assert_git_repo()
     if isinstance(git_result, Failure):
-        return git_result
+        return Failure(git_result.failure())
 
     # Get repository info
     repo_result = get_repository_info()
     if isinstance(repo_result, Failure):
-        return repo_result
+        return Failure(repo_result.failure())
     repo = repo_result.unwrap()
 
     # Get current branch if not specified
@@ -1028,6 +1122,16 @@ def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
         if isinstance(branch_result, Success):
             branch = branch_result.unwrap()
 
+    return Success((repo, branch))
+
+
+def _resolve_identifiers(
+    args: argparse.Namespace,
+    devhub_config: DevHubConfig,
+    repo: Repository,
+    branch: str | None,
+) -> Result[tuple[str | None, int | None], str]:
+    """Resolve Jira key and PR number."""
     # Resolve Jira key
     explicit_jira_key = getattr(args, "jira_key", None)
     organization = getattr(args, "organization", None)
@@ -1042,18 +1146,67 @@ def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
     explicit_pr_number = getattr(args, "pr_number", None)
     pr_result = resolve_pr_number(repo, explicit_pr_number, branch, jira_key)
     if isinstance(pr_result, Failure):
-        return pr_result
+        return Failure(pr_result.failure())
     pr_number = pr_result.unwrap()
 
-    # Create bundle configuration
-    bundle_config = BundleConfig(
-        include_jira=not getattr(args, "no_jira", False),
-        include_pr=not getattr(args, "no_pr", False),
-        include_diff=not getattr(args, "no_diff", False),
-        include_comments=not getattr(args, "no_comments", False),
-        limit=getattr(args, "limit", 10),
-        organization=organization,
-    )
+    return Success((jira_key, pr_number))
+
+
+def _write_bundle_json(
+    bundle_json_text: str,
+    output_paths: OutputPaths,
+) -> Result[Path, str]:
+    """Write bundle JSON and return the target directory."""
+    # Determine bundle.json destination and directory to ensure
+    bundle_json_path = getattr(output_paths, "bundle_json", None)
+    if callable(bundle_json_path):
+        with contextlib.suppress(TypeError):
+            # Some implementations may expose it as a method
+            bundle_json_path = bundle_json_path()  # type: ignore[misc]
+    if not isinstance(bundle_json_path, Path):
+        # Fallback to base_dir/bundle.json
+        base_dir = getattr(output_paths, "base_dir", None)
+        if not isinstance(base_dir, Path):
+            return Failure("Invalid output paths: missing base directory")
+        ensure_target_dir = base_dir
+        bundle_json_path = base_dir / "bundle.json"
+    else:
+        ensure_target_dir = bundle_json_path.parent
+
+    # Ensure directory exists
+    ensure_result = ensure_directory(ensure_target_dir)
+    if isinstance(ensure_result, Failure):
+        return Failure(ensure_result.failure())
+
+    # Write bundle.json
+    try:
+        bundle_obj = json.loads(bundle_json_text)
+    except json.JSONDecodeError as e:
+        return Failure(f"Invalid bundle JSON: {e}")
+
+    json_result = write_json_file(bundle_json_path, bundle_obj)
+    if isinstance(json_result, Failure):
+        return Failure(json_result.failure())
+
+    return Success(ensure_target_dir)
+
+
+def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
+    """Handle bundle command."""
+    # Set up configuration
+    devhub_config, bundle_config = _setup_bundle_config(args)
+
+    # Resolve repository and branch
+    repo_branch_result = _resolve_repo_and_branch(args)
+    if isinstance(repo_branch_result, Failure):
+        return repo_branch_result
+    repo, branch = repo_branch_result.unwrap()
+
+    # Resolve identifiers
+    identifiers_result = _resolve_identifiers(args, devhub_config, repo, branch)
+    if isinstance(identifiers_result, Failure):
+        return identifiers_result
+    jira_key, pr_number = identifiers_result.unwrap()
 
     # Gather bundle data into JSON string
     bundle_result = _gather_bundle_data(
@@ -1069,44 +1222,16 @@ def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
         return bundle_result
     bundle_json_text = bundle_result.unwrap()
 
-    # Create output paths
+    # Create output paths and write bundle
     output_dir = getattr(args, "output_dir", getattr(args, "out", None))
     output_paths = create_output_paths(output_dir, jira_key, pr_number)
 
-    # Determine bundle.json destination and directory to ensure
-    bundle_json_path = getattr(output_paths, "bundle_json", None)
-    if callable(bundle_json_path):
-        try:
-            # Some implementations may expose it as a method
-            bundle_json_path = bundle_json_path()  # type: ignore[misc]
-        except TypeError:
-            pass
-    if not isinstance(bundle_json_path, Path):
-        # Fallback to base_dir/bundle.json
-        base_dir = getattr(output_paths, "base_dir", None)
-        if not isinstance(base_dir, Path):
-            return Failure("Invalid output paths: missing base directory")
-        ensure_target_dir = base_dir
-        bundle_json_path = base_dir / "bundle.json"
-    else:
-        ensure_target_dir = bundle_json_path.parent
+    target_dir_result = _write_bundle_json(bundle_json_text, output_paths)
+    if isinstance(target_dir_result, Failure):
+        return target_dir_result
+    target_dir = target_dir_result.unwrap()
 
-    # Ensure directory exists
-    ensure_result = ensure_directory(ensure_target_dir)
-    if isinstance(ensure_result, Failure):
-        return ensure_result
-
-    # Write bundle.json
-    try:
-        bundle_obj = json.loads(bundle_json_text)
-    except json.JSONDecodeError as e:
-        return Failure(f"Invalid bundle JSON: {e}")
-
-    json_result = write_json_file(bundle_json_path, bundle_obj)
-    if isinstance(json_result, Failure):
-        return json_result
-
-    return Success(f"Bundle saved to: {ensure_target_dir}")
+    return Success(f"Bundle saved to: {target_dir}")
 
 
 def handle_doctor_command() -> Result[str, str]:
@@ -1164,19 +1289,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "bundle":
         result = handle_bundle_command(args)
         if isinstance(result, Success):
-            print(result.unwrap())
             return 0
-        else:
-            sys.stderr.write(f"Error: {result.failure()}\n")
-            return 1
-    elif args.command == "doctor":
+        sys.stderr.write(f"Error: {result.failure()}\n")
+        return 1
+    if args.command == "doctor":
         result = handle_doctor_command()
         if isinstance(result, Success):
-            print(result.unwrap())
             return 0
-        else:
-            sys.stderr.write(f"Error: {result.failure()}\n")
-            return 1
-    else:
-        return 2
-
+        sys.stderr.write(f"Error: {result.failure()}\n")
+        return 1
+    return 2
