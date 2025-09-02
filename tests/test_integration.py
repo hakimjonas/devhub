@@ -301,11 +301,10 @@ class TestCLIIntegration:
 
     def test_main_unknown_command(self) -> None:
         """Test main function with unknown command."""
-        with pytest.raises(SystemExit) as exc_info:
-            main(["unknown"])
+        result = main(["unknown"])
 
         # argparse exits with code 2 for invalid arguments
-        assert exc_info.value.code == 2
+        assert result == 2
 
 
 class TestEndToEndScenarios:

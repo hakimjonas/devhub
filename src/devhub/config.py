@@ -337,47 +337,60 @@ def load_config() -> Result[DevHubConfig, str]:
     return Success(DevHubConfig())
 
 
-def load_config_with_environment() -> Result[DevHubConfig, str]:
+def load_config_with_environment(config_path: str | os.PathLike[str] | None = None) -> Result[DevHubConfig, str]:
     """Load configuration and merge with environment variables.
 
     This combines file-based configuration with environment variables,
     allowing for flexible deployment scenarios.
 
-    Returns:
-        Result containing DevHubConfig with environment overrides
-    """
-    config_result = load_config()
-    if isinstance(config_result, Failure):
-        return config_result
+    Args:
+        config_path: Optional path to config file
 
-    config = config_result.unwrap()
+    Returns:
+        Result containing DevHubConfig with environment overrides (never Failure)
+    """
+    # Determine base configuration
+    base_config: DevHubConfig
+    if config_path:
+        try:
+            result = load_config_file(Path(config_path))
+            if isinstance(result, Failure):
+                base_config = DevHubConfig()
+            else:
+                parsed = parse_config_data(result.unwrap())
+                base_config = parsed.unwrap() if isinstance(parsed, Success) else DevHubConfig()
+        except Exception:
+            base_config = DevHubConfig()
+    else:
+        cfg_result = load_config()
+        base_config = cfg_result.unwrap() if isinstance(cfg_result, Success) else DevHubConfig()
 
     # Create environment-based Jira config
     env_jira = JiraConfig(
-        base_url=os.getenv("JIRA_BASE_URL") or config.global_jira.base_url,
-        email=os.getenv("JIRA_EMAIL") or config.global_jira.email,
-        api_token=os.getenv("JIRA_API_TOKEN") or config.global_jira.api_token,
-        default_project_prefix=(os.getenv("JIRA_DEFAULT_PROJECT") or config.global_jira.default_project_prefix),
-        timeout_seconds=config.global_jira.timeout_seconds,
-        max_retries=config.global_jira.max_retries,
+        base_url=os.getenv("JIRA_BASE_URL") or base_config.global_jira.base_url,
+        email=os.getenv("JIRA_EMAIL") or base_config.global_jira.email,
+        api_token=os.getenv("JIRA_API_TOKEN") or base_config.global_jira.api_token,
+        default_project_prefix=(os.getenv("JIRA_DEFAULT_PROJECT") or base_config.global_jira.default_project_prefix),
+        timeout_seconds=base_config.global_jira.timeout_seconds,
+        max_retries=base_config.global_jira.max_retries,
     )
 
     # Create environment-based GitHub config
     env_github = GitHubConfig(
-        default_org=os.getenv("GITHUB_DEFAULT_ORG") or config.global_github.default_org,
-        timeout_seconds=config.global_github.timeout_seconds,
-        max_retries=config.global_github.max_retries,
-        use_ssh=config.global_github.use_ssh,
+        default_org=os.getenv("GITHUB_DEFAULT_ORG") or base_config.global_github.default_org,
+        timeout_seconds=base_config.global_github.timeout_seconds,
+        max_retries=base_config.global_github.max_retries,
+        use_ssh=base_config.global_github.use_ssh,
     )
 
     # Create updated configuration
     updated_config = DevHubConfig(
-        default_organization=config.default_organization,
-        organizations=config.organizations,
+        default_organization=base_config.default_organization,
+        organizations=base_config.organizations,
         global_jira=env_jira,
         global_github=env_github,
-        global_output=config.global_output,
-        config_version=config.config_version,
+        global_output=base_config.global_output,
+        config_version=base_config.config_version,
     )
 
     return Success(updated_config)

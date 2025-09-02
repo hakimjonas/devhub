@@ -239,7 +239,15 @@ class DevHubMCPServer:
         jira_key = str(jira_key_val) if jira_key_val is not None else None
 
         pr_number_val = kwargs.get("pr_number")
-        pr_number = int(pr_number_val) if isinstance(pr_number_val, (int, str)) else None
+        pr_number = None
+        if isinstance(pr_number_val, int):
+            pr_number = pr_number_val
+        elif isinstance(pr_number_val, str):
+            try:
+                pr_number = int(pr_number_val)
+            except ValueError:
+                pr_number = None
+
         return jira_key, pr_number
 
     @staticmethod

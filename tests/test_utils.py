@@ -56,12 +56,13 @@ class TestPureFunctions:
 
         # If a result is found, it should match the pattern
         if result is not None:
-            assert len(result) >= 5  # At least XX-1 format
+            assert len(result) >= 4  # At least X-1 format (minimum valid Jira key)
             assert "-" in result
             parts = result.split("-")
             assert len(parts) == 2
             assert parts[0].isupper()  # Project code is uppercase
-            assert parts[0].isalpha()  # Project code is alphabetic
+            assert parts[0].isalnum()  # Project code is alphanumeric (letters and digits)
+            assert parts[0][0].isalpha()  # First character must be a letter (per regex)
             assert parts[1].isdigit()  # Issue number is numeric
 
     def test_now_slug_format(self) -> None:

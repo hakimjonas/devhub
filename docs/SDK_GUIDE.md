@@ -1,344 +1,247 @@
-# DevHub Python SDK Guide
+    pr_number=456,
+    include_jira=False,
+async def error_handling_example():
+    comment_limit=50
+)
+    # Pattern 1: Check result type
 
-> **Complete guide for the DevHub Python SDK for programmatic access**
-
-The DevHub Python SDK provides a clean, type-safe interface for AI agents and custom tools to access DevHub functionality programmatically. Built on functional programming principles, it offers both synchronous and asynchronous APIs with comprehensive error handling and caching support.
-
-## Quick Start
-
-### Installation
-
-```python
-# DevHub SDK is included with DevHub installation
-from devhub.sdk import DevHubClient, ContextRequest
-
-# Create client
-client = DevHubClient()
-```
-
-### Simple Usage
+# Get current branch with minimal data
 
 ```python
-import asyncio
-from devhub.sdk import get_current_context
-
-async def main():
-    # Get current branch context
-    result = await get_current_context()
+        # Use bundle data
+        print(f"Success: {bundle.repository.name}")
+from devhub.sdk import DevHubClient, ContextRequest, SDKConfig
+        error_msg = result.failure()
+        print(f"Error: {error_msg}")
     
-    if isinstance(result, Success):
-        bundle = result.unwrap()
-        print(f"Repository: {bundle.repository.owner}/{bundle.repository.name}")
-        print(f"Branch: {bundle.branch}")
+    # Pattern 2: Chain operations
+    request = ContextRequest(jira_key="INVALID-123")
+    result = await client.get_bundle_context(request)
+    if isinstance(init_result, Failure):
+    match result:
+        case Success(bundle):
+            print(f"Got bundle for {bundle.branch}")
+        case Failure(error):
+            print(f"Operation failed: {error}")
+        include_jira=True,
+    # Pattern 3: Fallback handling
+        include_diff=True,
+    
+    if isinstance(jira_result, Failure):
+        print(f"Jira fetch failed: {jira_result.failure()}")
+        # Try alternative approach
+        bundle_result = await client.get_bundle_context(
+            ContextRequest(include_jira=False)
+        )
+        if isinstance(bundle_result, Success):
+            print("Fallback successful: got context without Jira")
         if bundle.jira_issue:
-            print(f"Jira: {bundle.jira_issue.key} - {bundle.jira_issue.summary}")
+asyncio.run(error_handling_example())
+```
+            print(f"Summary: {bundle.jira_issue.summary}")
+### Caching Configuration
+        if bundle.pr_data:
+            print(f"PR Number: {bundle.pr_data.get('number')}")
+import asyncio
+from devhub.sdk import DevHubClient, SDKConfig, ContextRequest
+        if bundle.comments:
+async def caching_example():
     else:
         print(f"Error: {result.failure()}")
 
-asyncio.run(main())
-```
-
-## API Reference
-
-### Core Classes
-
-#### DevHubClient
-
-Main synchronous client for DevHub access.
-
-```python
-class DevHubClient:
-    def __init__(self, config: Optional[SDKConfig] = None) -> None
-    
-    async def initialize(self) -> Result[None, str]
-    async def get_bundle_context(self, request: Optional[ContextRequest] = None) -> Result[BundleData, str]
-    async def get_jira_issue(self, jira_key: str) -> Result[JiraIssue, str]
-    async def get_pr_details(self, pr_number: int, include_diff: bool = True) -> Result[dict[str, Any], str]
-    async def get_pr_comments(self, pr_number: int, limit: int = 20) -> Result[tuple[ReviewComment, ...], str]
-    async def get_current_branch_context(self, include_diff: bool = True, include_comments: bool = True, comment_limit: int = 20) -> Result[BundleData, str]
-    async def stream_pr_updates(self, pr_number: int) -> AsyncIterator[StreamUpdate]
-    async def execute_cli_command(self, command: list[str], capture_output: bool = True) -> Result[str, str]
+        cache_ttl_seconds=600  # 10 minutes
 ```
 
 #### DevHubAsyncClient
-
-Async-first client with context manager support.
-
-```python
-class DevHubAsyncClient:
-    def __init__(self, config: Optional[SDKConfig] = None) -> None
+    request = ContextRequest(jira_key="PROJ-123")
     
-    async def __aenter__(self) -> "DevHubAsyncClient"
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None
+
+    print("First call (cache miss)...")
+    result1 = await client.get_bundle_context(request)
     
-    async def get_bundle_context(self, request: Optional[ContextRequest] = None) -> Result[BundleData, str]
-    async def get_multiple_contexts(self, requests: list[ContextRequest]) -> list[Result[BundleData, str]]
-    async def stream_updates(self, pr_number: int) -> AsyncIterator[StreamUpdate]
-```
+    # Second call - returns from cache
+    print("Second call (cache hit)...")
+    result2 = await client.get_bundle_context(request)
 
-### Configuration Classes
-
-#### SDKConfig
-
-```python
-@dataclass(frozen=True, slots=True)
-class SDKConfig:
-    workspace_path: Path = field(default_factory=Path.cwd)
-    organization: Optional[str] = None
-    cache_enabled: bool = True
-    cache_ttl_seconds: int = 300
-    timeout_seconds: int = 30
-```
-
-#### ContextRequest
-
-```python
-@dataclass(frozen=True, slots=True)
-class ContextRequest:
-    jira_key: Optional[str] = None
-    pr_number: Optional[int] = None
-    branch: Optional[str] = None
-    include_jira: bool = True
-    include_pr: bool = True
-    include_diff: bool = True
-    include_comments: bool = True
-    comment_limit: int = 20
-    metadata_only: bool = False
-```
-
-## Usage Examples
-
-### Basic Operations
-
-#### Get Current Branch Context
-
-```python
-import asyncio
-from devhub.sdk import DevHubClient
-
-async def get_current_context():
-    client = DevHubClient()
-    
-    result = await client.get_current_branch_context(
-        include_diff=True,
-        include_comments=True,
-        comment_limit=15
-    )
-    
-    if isinstance(result, Success):
-        bundle = result.unwrap()
-        
-        # Access repository info
-        repo = bundle.repository
-        print(f"Repository: {repo.owner}/{repo.name}")
-        
-        # Access Jira info
-        if bundle.jira_issue:
-            jira = bundle.jira_issue
-            print(f"Jira: {jira.key} - {jira.summary}")
-        
-        # Access PR info
-        if bundle.pr_data:
-            pr = bundle.pr_data
-            print(f"PR: #{pr['number']} - {pr['title']}")
-        
-        # Access comments
-        if bundle.comments:
-            print(f"Comments: {len(bundle.comments)} unresolved")
-            for comment in bundle.comments[:3]:  # First 3 comments
-                print(f"  - {comment.author}: {comment.body[:50]}...")
-        
-        # Access diff
-        if bundle.pr_diff:
-            lines = bundle.pr_diff.split('\n')
-            print(f"Diff: {len(lines)} lines changed")
-    
-    else:
-        print(f"Error: {result.failure()}")
-
-asyncio.run(get_current_context())
-```
-
-#### Get Specific Jira Issue
-
-```python
-async def get_jira_issue():
-    client = DevHubClient()
-    
-    result = await client.get_jira_issue("PROJ-123")
-    
-    if isinstance(result, Success):
-        issue = result.unwrap()
-        print(f"Key: {issue.key}")
-        print(f"Summary: {issue.summary}")
-        print(f"Description: {issue.description}")
-    else:
-        print(f"Error: {result.failure()}")
-```
-
-#### Get PR Details with Diff
-
-```python
-async def get_pr_details():
-    client = DevHubClient()
-    
-    result = await client.get_pr_details(456, include_diff=True)
-    
-    if isinstance(result, Success):
-        pr_data = result.unwrap()
-        print(f"PR #{pr_data['number']}: {pr_data['title']}")
-        print(f"Author: {pr_data['user']['login']}")
-        print(f"Created: {pr_data['created_at']}")
-        
-        if 'diff' in pr_data:
-            print(f"Diff: {len(pr_data['diff'].split('\\n'))} lines")
-    else:
-        print(f"Error: {result.failure()}")
-```
-
-### Advanced Usage
-
-#### Custom Configuration
-
-```python
-from devhub.sdk import DevHubClient, SDKConfig
-from pathlib import Path
-
-async def custom_config_example():
-    # Create custom configuration
-    config = SDKConfig(
-        workspace_path=Path("/path/to/project"),
-        organization="my-org",
-        cache_enabled=True,
-        cache_ttl_seconds=600,  # 10 minutes
-        timeout_seconds=60
-    )
-    
-    client = DevHubClient(config)
-    
-    # Use client with custom configuration
-    result = await client.get_current_branch_context()
-    # ... handle result
-```
-
-#### Async Context Manager
-
-```python
+    # Disable caching
+    no_cache_config = SDKConfig(cache_enabled=False)
+    no_cache_client = DevHubClient(no_cache_config)
 from devhub.sdk import DevHubAsyncClient, ContextRequest
+    print("No cache call (always fresh)...")
+    result3 = await no_cache_client.get_bundle_context(request)
 
-async def async_context_example():
-    async with DevHubAsyncClient() as client:
-        # Multiple concurrent requests
-        requests = [
-            ContextRequest(jira_key="PROJ-123"),
-            ContextRequest(pr_number=456),
-            ContextRequest(branch="feature/test")
-        ]
+asyncio.run(caching_example())
+        # Get single context
+        request = ContextRequest(jira_key="PROJ-123")
+## Convenience Functions
+
+For quick access, use the convenience functions:
         
-        results = await client.get_multiple_contexts(requests)
-        
-        for i, result in enumerate(results):
-            if isinstance(result, Success):
-                bundle = result.unwrap()
-                print(f"Request {i}: Success - {bundle.branch}")
-            else:
-                print(f"Request {i}: Error - {result.failure()}")
-```
-
-#### Streaming Updates
-
-```python
-async def stream_pr_updates():
-    client = DevHubClient()
-    
-    # Stream updates for PR #789
-    async for update in client.stream_pr_updates(789):
-        print(f"Update type: {update.update_type}")
-        print(f"Timestamp: {update.timestamp}")
-        print(f"Data: {update.data.get('title', 'Unknown')}")
-        
-        # Process update
-        if update.update_type == "pr_updated":
-            # Handle PR update
-            pass
-```
-
-#### CLI Command Execution
-
-```python
-async def execute_cli_commands():
-    client = DevHubClient()
-    
-    # Execute custom DevHub CLI command
-    result = await client.execute_cli_command([
-        "bundle", 
-        "--jira-key", "PROJ-123",
-        "--format", "json",
-        "--limit", "10"
-    ])
-    
-    if isinstance(result, Success):
-        output = result.unwrap()
-        print(f"CLI Output: {output[:100]}...")
-    else:
-        print(f"CLI Error: {result.failure()}")
-```
-
-### Convenience Functions
-
-#### Quick Access Functions
-
-```python
+        if isinstance(result, Success):
+            bundle = result.unwrap()
 from devhub.sdk import get_current_context, get_context_for_jira, get_context_for_pr
-
-async def quick_access_examples():
-    # Get current context
-    current = await get_current_context()
+    client = DevHubClient()
     
+async def convenience_examples():
+    # Get current branch context
+    current = await get_current_context()
+    if isinstance(current, Success):
+        bundle = current.unwrap()
+        print(f"Current: {bundle.repository.name}@{bundle.branch}")
+        issue = result.unwrap()
     # Get context for specific Jira issue
     jira_context = await get_context_for_jira("PROJ-123")
+    if isinstance(jira_context, Success):
+        bundle = jira_context.unwrap()
+        if bundle.jira_issue:
+            print(f"Jira: {bundle.jira_issue.summary}")
     
     # Get context for specific PR
     pr_context = await get_context_for_pr(456)
+    if isinstance(pr_context, Success):
+        bundle = pr_context.unwrap()
+        if bundle.pr_data:
+            print(f"PR: {bundle.pr_data.get('title', 'N/A')}")
+import asyncio
+asyncio.run(convenience_examples())
+        print(f"Title: {pr_data.get('title', 'N/A')}")
+        if 'diff' in pr_data:
+            print(f"Diff length: {len(pr_data['diff'])} characters")
     
-    # All return Result[BundleData, str]
-    for result in [current, jira_context, pr_context]:
-        if isinstance(result, Success):
-            bundle = result.unwrap()
-            print(f"Bundle for {bundle.branch}: {len(bundle.comments)} comments")
+### 1. Always Handle Results
+```python
+import asyncio
+# ✅ Good
+
+async def streaming_example():
+    client = DevHubClient()
+    # Use bundle
+    # Stream PR updates (runs indefinitely)
+    logger.error(f"Failed: {result.failure()}")
+        async for update in client.stream_pr_updates(456):
+# ❌ Bad - no error handling
+bundle = (await client.get_bundle_context()).unwrap()  # May raise!
+            print(f"Data: {update.data}")
+            
+### 2. Use Appropriate Configuration
+            if update_count >= 5:  # Stop after 5 updates for example
+                break
+# ✅ Good - configure for your use case
+config = SDKConfig(
+    organization="my-org",           # Set your organization
+    cache_enabled=True,              # Enable caching for performance
+    cache_ttl_seconds=300,           # Reasonable TTL
+    timeout_seconds=30               # Reasonable timeout
+)
+        print("Streaming stopped by user")
+# ❌ Bad - using defaults when you need specific behavior
+client = DevHubClient()  # May not work for your organization
+### CLI Command Execution
+
+### 3. Use Context Managers for Async Client
+import asyncio
+from devhub.sdk import DevHubClient
+# ✅ Good - proper cleanup
+async with DevHubAsyncClient() as client:
+    result = await client.get_bundle_context()
+
+# ❌ Bad - manual management
+client = DevHubAsyncClient()
+await client.__aenter__()
+# ... work with client
+await client.__aexit__(None, None, None)
 ```
 
-## Integration Patterns
-
-### AI Agent Integration
+### 4. Specify Request Parameters
 
 ```python
-from devhub.sdk import DevHubClient, ContextRequest
-from typing import Dict, Any
+# ✅ Good - explicit about what you need
 
-class AICodeAgent:
-    """Example AI code agent using DevHub SDK."""
+    include_jira=True,
+    include_pr=False,      # Skip if not needed
+    include_diff=False,    # Skip large diffs if not needed
+    include_comments=True,
+    comment_limit=10       # Limit to what you need
+    result = await client.execute_cli_command([
+        "bundle", 
+# ❌ Bad - getting everything when you only need some
+request = ContextRequest()  # Gets everything, may be slow
+    ])
     
-    def __init__(self):
-        self.devhub = DevHubClient()
+### 5. Error Logging
+        print(output)
+    else:
+import logging
+from devhub.sdk import DevHubClient
+from returns.result import Failure
+    # Execute with timeout and no output capture
+logger = logging.getLogger(__name__)
+        capture_output=False,
+async def robust_example():
+    )
     
-    async def analyze_current_work(self) -> Dict[str, Any]:
+    result = await client.get_bundle_context()
+
+    if isinstance(result, Failure):
+        logger.error(f"DevHub SDK error: {result.failure()}")
+        # Handle error appropriately
+        return None
+    
+    return result.unwrap()
+from devhub.sdk import DevHubClient, ContextRequest
         """Analyze current development context."""
-        result = await self.devhub.get_current_branch_context()
+## Integration Examples
+
+### With FastAPI
+
+```python
+from fastapi import FastAPI, HTTPException
+from devhub.sdk import get_context_for_jira
+from returns.result import Success, Failure
+
+app = FastAPI()
+
+@app.get("/jira/{jira_key}")
+async def get_jira_context(jira_key: str):
+    result = await get_context_for_jira(jira_key)
+    
+    match result:
+        case Success(bundle):
+            return {
+                "jira_key": bundle.jira_issue.key if bundle.jira_issue else None,
+                "repository": f"{bundle.repository.owner}/{bundle.repository.name}",
+                "branch": bundle.branch
+            }
+        case Failure(error):
+            raise HTTPException(status_code=400, detail=error)
+```
+
+### With Background Tasks
         
         if isinstance(result, Success):
-            bundle = result.unwrap()
-            
+import asyncio
+from devhub.sdk import DevHubClient
             analysis = {
-                "repository": f"{bundle.repository.owner}/{bundle.repository.name}",
-                "branch": bundle.branch,
-                "has_jira": bundle.jira_issue is not None,
-                "has_pr": bundle.pr_data is not None,
-                "comment_count": len(bundle.comments),
+async def background_monitor():
+    """Background task to monitor PR updates."""
+    client = DevHubClient()
+    
+    while True:
+        try:
+            async for update in client.stream_pr_updates(456):
+                if update.update_type == "pr_updated":
+                    # Process update
+                    await process_pr_update(update.data)
+                    
+        except Exception as e:
+            print(f"Monitor error: {e}")
+            await asyncio.sleep(60)  # Wait before retry
                 "complexity_score": self._calculate_complexity(bundle)
-            }
+async def process_pr_update(pr_data):
+    """Process a PR update."""
+    print(f"Processing PR update: {pr_data}")
+```
             
-            return analysis
         else:
             return {"error": result.failure()}
     

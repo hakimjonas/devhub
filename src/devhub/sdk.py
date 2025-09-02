@@ -208,13 +208,18 @@ class DevHubClient:
         self, json_result: str, repo: Repository, branch: str, req: ContextRequest
     ) -> Result[BundleData, str]:
         """Process the JSON result into BundleData."""
-        json_data = json.loads(json_result)
-        bundle_data = self._json_to_bundle_data(json_data, repo, branch)
+        try:
+            json_data = json.loads(json_result)
+            bundle_data = self._json_to_bundle_data(json_data, repo, branch)
 
-        if self._config.cache_enabled:
-            self._cache_result("bundle", req, bundle_data)
+            if self._config.cache_enabled:
+                self._cache_result("bundle", req, bundle_data)
 
-        return Success(bundle_data)
+            return Success(bundle_data)
+        except json.JSONDecodeError as e:
+            return Failure(f"Failed to process bundle data: Invalid JSON - {e}")
+        except (ValueError, TypeError, KeyError) as e:
+            return Failure(f"Failed to process bundle data: {e}")
 
     async def get_jira_issue(self, jira_key: str) -> Result[JiraIssue, str]:
         """Get specific Jira issue details."""
@@ -359,6 +364,8 @@ class DevHubClient:
 
         except TimeoutError:
             return Failure("CLI command timed out")
+        except KeyboardInterrupt:
+            return Failure("Command interrupted by user")
         except (OSError, ValueError) as e:
             return Failure(f"CLI command error: {e}")
 

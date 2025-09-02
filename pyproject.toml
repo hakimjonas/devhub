@@ -52,6 +52,7 @@ dev-dependencies = [
     "pytest-cov>=6.0.0",
     "pytest-xdist>=3.8.0",
     "pytest-mock>=3.14.0",
+    "pytest-asyncio>=0.24.0",
     "ruff>=0.12.11",
     "mypy>=1.17.1",
     "pyright>=1.1.404", # Add back for maximum type safety
@@ -194,6 +195,7 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "property: marks property-based tests",
+    "asyncio: marks tests as async tests",
 ]
 
 [tool.commitizen]
