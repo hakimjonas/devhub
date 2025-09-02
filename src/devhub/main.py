@@ -972,34 +972,28 @@ def _save_jira_files(bundle_data: BundleData, output_paths: OutputPaths) -> Resu
     return write_text_file(output_paths.jira_md(jira_key), jira_md_content)
 
 
-def _save_pr_files(bundle_data: BundleData, output_paths: OutputPaths) -> Result[None, str]:
-    """Save PR-related files."""
-    if not bundle_data.pr_data:
-        return Success(None)
-
-    pr_number = bundle_data.pr_data.get("number", 0)
-    pr_json_result = write_json_file(output_paths.pr_json(pr_number), bundle_data.pr_data)
-    if isinstance(pr_json_result, Failure):
-        return pr_json_result
-
-    # Create PR markdown file
+def _write_pr_markdown(pr_data: dict[str, Any], output_paths: OutputPaths) -> Result[None, str]:
+    """Write PR markdown file."""
+    pr_number = pr_data.get("number", 0)
     pr_md_content = f"# Pull Request #{pr_number}\n\n"
-    pr_md_content += f"**Title:** {bundle_data.pr_data.get('title', 'N/A')}\n\n"
-    pr_md_content += f"**URL:** {bundle_data.pr_data.get('html_url', 'N/A')}\n\n"
-    if bundle_data.pr_data.get("body"):
-        pr_md_content += f"**Description:**\n{bundle_data.pr_data['body']}\n\n"
+    pr_md_content += f"**Title:** {pr_data.get('title', 'N/A')}\n\n"
+    pr_md_content += f"**URL:** {pr_data.get('html_url', 'N/A')}\n\n"
+    if pr_data.get("body"):
+        pr_md_content += f"**Description:**\n{pr_data['body']}\n\n"
+    return write_text_file(output_paths.pr_md(pr_number), pr_md_content)
 
-    pr_md_result = write_text_file(output_paths.pr_md(pr_number), pr_md_content)
-    if isinstance(pr_md_result, Failure):
-        return pr_md_result
 
-    # Save PR diff if available
+def _write_pr_diff_if_present(bundle_data: BundleData, pr_number: int, output_paths: OutputPaths) -> Result[None, str]:
+    """Write PR diff if available."""
     if bundle_data.pr_diff:
-        diff_result = write_text_file(output_paths.pr_diff(pr_number), bundle_data.pr_diff)
-        if isinstance(diff_result, Failure):
-            return diff_result
+        return write_text_file(output_paths.pr_diff(pr_number), bundle_data.pr_diff)
+    return Success(None)
 
-    # Save comments if available
+
+def _write_pr_comments_if_present(
+    bundle_data: BundleData, pr_number: int, output_paths: OutputPaths
+) -> Result[None, str]:
+    """Write PR comments if available."""
     if bundle_data.comments:
         comments_data = [
             {
@@ -1013,9 +1007,36 @@ def _save_pr_files(bundle_data: BundleData, output_paths: OutputPaths) -> Result
             }
             for comment in bundle_data.comments
         ]
-        comments_result = write_json_file(output_paths.comments_json(pr_number), comments_data)
-        if isinstance(comments_result, Failure):
-            return comments_result
+        return write_json_file(output_paths.comments_json(pr_number), comments_data)
+    return Success(None)
+
+
+def _save_pr_files(bundle_data: BundleData, output_paths: OutputPaths) -> Result[None, str]:
+    """Save PR-related files."""
+    if not bundle_data.pr_data:
+        return Success(None)
+
+    pr_number = bundle_data.pr_data.get("number", 0)
+
+    # Save PR JSON
+    pr_json_result = write_json_file(output_paths.pr_json(pr_number), bundle_data.pr_data)
+    if isinstance(pr_json_result, Failure):
+        return pr_json_result
+
+    # Save PR markdown
+    pr_md_result = _write_pr_markdown(bundle_data.pr_data, output_paths)
+    if isinstance(pr_md_result, Failure):
+        return pr_md_result
+
+    # Save PR diff (optional)
+    diff_result = _write_pr_diff_if_present(bundle_data, pr_number, output_paths)
+    if isinstance(diff_result, Failure):
+        return diff_result
+
+    # Save comments (optional)
+    comments_result = _write_pr_comments_if_present(bundle_data, pr_number, output_paths)
+    if isinstance(comments_result, Failure):
+        return comments_result
 
     return Success(None)
 
@@ -1162,7 +1183,7 @@ def _write_bundle_json(
     if callable(bundle_json_path):
         with contextlib.suppress(TypeError):
             # Some implementations may expose it as a method
-            bundle_json_path = bundle_json_path()  # type: ignore[misc]
+            bundle_json_path = bundle_json_path()
     if not isinstance(bundle_json_path, Path):
         # Fallback to base_dir/bundle.json
         base_dir = getattr(output_paths, "base_dir", None)
@@ -1278,7 +1299,7 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as e:
         # argparse calls sys.exit for --help, --version, and errors
         # --help and --version should return 0, argument errors should return 2
-        return e.code if e.code is not None else 0
+        return int(e.code) if e.code is not None else 0
 
     # If argparse already errored (unknown/missing command) and sys.exit is mocked,
     # parse_args returns None. Do not call sys.exit again.

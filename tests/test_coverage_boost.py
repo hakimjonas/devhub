@@ -18,7 +18,6 @@ from devhub.config import OrganizationConfig
 from devhub.main import BundleData
 from devhub.main import Repository
 from devhub.main import _write_bundle_json
-from devhub.main import handle_bundle_command
 from devhub.sdk import DevHubClient
 
 
@@ -92,7 +91,10 @@ class TestAdditionalMainCoverage:
 
         # Create a mock OutputPaths with callable bundle_json
         mock_output_paths = Mock(spec=OutputPaths)
-        mock_bundle_json_path = Path("/tmp/test/bundle.json")
+        import tempfile as _tempfile  # local import to avoid global temp path usage
+
+        _tmp_dir = _tempfile.mkdtemp()
+        mock_bundle_json_path = Path(_tmp_dir) / "bundle.json"
         mock_output_paths.bundle_json = Mock(return_value=mock_bundle_json_path)
 
         with (

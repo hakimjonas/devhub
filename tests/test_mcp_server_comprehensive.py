@@ -1,8 +1,6 @@
 """Comprehensive tests for DevHub MCP Server module."""
 
-import asyncio
 import json
-from typing import Any
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -826,27 +824,28 @@ class TestMCPServerMain:
             # Setup readline to return lines then empty string to break loop
             mock_stdin.readline.side_effect = mock_stdin_lines
 
-            # Mock the event loop
-            mock_loop = Mock()
+            with patch("devhub.mcp_server_comprehensive.asyncio.create_task") as mock_create_task:
+                # Fix the coroutine call - asyncio doesn't have a 'coroutine' attribute
+                # Instead, we'll mock the task creation directly
+                mock_task = Mock()
+                mock_create_task.return_value = mock_task
 
-            def mock_run_in_executor(executor: Any, func: Any) -> Any:
-                # Return the next line from our mock stdin
-                return asyncio.create_task(asyncio.coroutine(lambda: mock_stdin.readline())())
+                # Mock the event loop
+                mock_loop = Mock()
+                mock_loop.run_in_executor = AsyncMock(side_effect=mock_stdin_lines)
+                mock_get_loop.return_value = mock_loop
 
-            mock_loop.run_in_executor = AsyncMock(side_effect=mock_stdin_lines)
-            mock_get_loop.return_value = mock_loop
+                # Mock server response
+                with patch("devhub.mcp_server.DevHubMCPServer") as mock_server_class:
+                    mock_server = Mock()
+                    mock_server.handle_request = AsyncMock(return_value=mock_response)
+                    mock_server_class.return_value = mock_server
 
-            # Mock server response
-            with patch("devhub.mcp_server.DevHubMCPServer") as mock_server_class:
-                mock_server = Mock()
-                mock_server.handle_request = AsyncMock(return_value=mock_response)
-                mock_server_class.return_value = mock_server
+                    await main()
 
-                await main()
-
-                # Verify server was called correctly
-                mock_server.handle_request.assert_called_once_with(mock_request)
-                mock_print.assert_called_with(json.dumps(mock_response), flush=True)
+                    # Verify server was called correctly
+                    mock_server.handle_request.assert_called_once_with(mock_request)
+                    mock_print.assert_called_with(json.dumps(mock_response), flush=True)
 
     @pytest.mark.asyncio
     async def test_main_function_exception_handling(self):

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -431,7 +432,7 @@ class TestMainCLIFunctions:
 
     def test_parse_pr_number_from_output_json_no_items(self):
         """Test parsing PR number from JSON with no items."""
-        search_data = {"items": []}
+        search_data: dict[str, list[dict[str, Any]]] = {"items": []}
 
         mock_process = Mock()
         mock_process.stdout = json.dumps(search_data)
@@ -517,7 +518,7 @@ class TestMainCLIFunctions:
 
     def test_parse_search_results_no_items(self):
         """Test search results parsing with no items."""
-        search_data = {"items": []}
+        search_data: dict[str, list[dict[str, Any]]] = {"items": []}
 
         result = _parse_search_results(json.dumps(search_data))
 
@@ -716,10 +717,17 @@ class TestMainCLIFunctions:
             # Make curl fail
             mock_run.return_value = Failure("curl failed")
 
-            # Mock HTTP error
+            # Mock HTTP error - using proper type for hdrs parameter
+            from email.message import Message
+            hdrs = Message()
             error = urllib.error.HTTPError(
-                url="https://test.atlassian.net/rest/api/3/issue/TEST-123", code=404, msg="Not Found", hdrs={}, fp=None
+                url="https://test.atlassian.net/rest/api/3/issue/TEST-123",
+                code=404,
+                msg="Not Found",
+                hdrs=hdrs,  # Pass proper Message object instead of None
+                fp=None
             )
+            # Use setattr to assign read method to avoid method assignment error
             error.read = Mock(return_value=b"Issue not found")
             mock_urlopen.side_effect = error
 

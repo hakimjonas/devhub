@@ -337,6 +337,7 @@ class DevHubClient:
         capture_output: bool = True,
     ) -> Result[str, str]:
         """Execute DevHub CLI command programmatically."""
+        ret: Result[str, str]
         try:
             full_command = ["uv", "run", "devhub", *command]
 
@@ -357,17 +358,19 @@ class DevHubClient:
 
             if process.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Command failed"
-                return Failure(f"CLI command failed: {error_msg}")
-
-            output = stdout.decode() if stdout else ""
-            return Success(output)
+                ret = Failure(f"CLI command failed: {error_msg}")
+            else:
+                output = stdout.decode() if stdout else ""
+                ret = Success(output)
 
         except TimeoutError:
-            return Failure("CLI command timed out")
+            ret = Failure("CLI command timed out")
         except KeyboardInterrupt:
-            return Failure("Command interrupted by user")
+            ret = Failure("Command interrupted by user")
         except (OSError, ValueError) as e:
-            return Failure(f"CLI command error: {e}")
+            ret = Failure(f"CLI command error: {e}")
+
+        return ret
 
     def _json_to_bundle_data(
         self,

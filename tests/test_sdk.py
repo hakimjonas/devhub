@@ -3,6 +3,7 @@
 import json
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
@@ -582,12 +583,12 @@ class TestDevHubClient:
         mock_repo = Repository(owner="test", name="repo")
         mock_comments = (
             ReviewComment(
-                id=1,
-                body="Test comment",
-                path="test.py",
-                author="testuser",
-                created_at="2023-01-01T00:00:00Z",
-                diff_hunk="@@ -1,3 +1,3 @@",
+                "1",
+                "Test comment",
+                "test.py",
+                "testuser",
+                "2023-01-01T00:00:00Z",
+                "@@ -1,3 +1,3 @@",
                 resolved=False,
             ),
         )
@@ -714,7 +715,7 @@ class TestDevHubClient:
         client = DevHubClient()
         repo = Repository(owner="test", name="repo")
 
-        json_data = {
+        json_data: dict[str, Any] = {
             "jira": {
                 "key": "TEST-123",
                 "summary": "Test issue",
