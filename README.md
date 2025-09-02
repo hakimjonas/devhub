@@ -4,6 +4,11 @@
 
 DevHub is a sophisticated CLI tool that demonstrates clean, maintainable Python code through **immutable data structures**, **pure functions**, and **comprehensive type safety**. It seamlessly integrates Jira issues, GitHub pull requests, code diffs, and review comments into organized bundles for efficient offline code review.
 
+## 📚 Documentation
+
+- SDK Guide (async-first usage with DevHubAsyncClient): docs/SDK_GUIDE.md
+- IDE Integrations (VS Code and Cursor step-by-step): docs/IDE_INTEGRATIONS.md
+
 ## 🚀 Features
 
 - **Organization-First Configuration**: Multi-tenant support with hierarchical configuration system
@@ -635,4 +640,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 **DevHub**: *Where functional programming meets practical development tools.*
-
