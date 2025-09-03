@@ -1,6 +1,8 @@
 """Comprehensive tests for DevHub MCP Server module."""
 
 import json
+from typing import Any
+from typing import cast
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -39,7 +41,7 @@ class TestDevHubMCPServer:
         assert "get-current-branch-context" in server.tools
 
         # Verify tool structure
-        bundle_tool = server.tools["get-bundle-context"]
+        bundle_tool = cast("dict[str, Any]", server.tools["get-bundle-context"])
         assert "description" in bundle_tool
         assert "inputSchema" in bundle_tool
         assert bundle_tool["inputSchema"]["type"] == "object"

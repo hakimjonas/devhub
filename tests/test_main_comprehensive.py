@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -726,10 +727,8 @@ class TestMainCLIFunctions:
                 code=404,
                 msg="Not Found",
                 hdrs=hdrs,  # Pass proper Message object instead of None
-                fp=None,
+                fp=BytesIO(b"Issue not found"),
             )
-            # Use setattr to assign read method to avoid method assignment error
-            error.read = Mock(return_value=b"Issue not found")
             mock_urlopen.side_effect = error
 
             result = fetch_jira_issue(credentials, "TEST-123")
@@ -1752,9 +1751,10 @@ class TestAdditionalCoverage:
 
     def test_create_output_paths_with_pathlike(self):
         """Test creating output paths with PathLike object."""
+        from pathlib import Path
         from pathlib import PurePath
 
-        result = create_output_paths(PurePath("/custom/path"), None, None)
+        result = create_output_paths(str(PurePath("/custom/path")), None, None)
 
         assert result.base_dir == Path("/custom/path")
 

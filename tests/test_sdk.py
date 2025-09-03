@@ -4,6 +4,7 @@ import json
 import time
 from pathlib import Path
 from typing import Any
+from typing import cast
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
@@ -53,7 +54,7 @@ class TestSDKConfig:
         """Test that SDKConfig is immutable."""
         config = SDKConfig()
         with pytest.raises(AttributeError):
-            config.workspace_path = Path("/new")
+            cast("Any", config).workspace_path = Path("/new")
 
 
 class TestContextRequest:
@@ -99,7 +100,7 @@ class TestContextRequest:
         """Test that ContextRequest is immutable."""
         request = ContextRequest()
         with pytest.raises(AttributeError):
-            request.jira_key = "NEW-123"
+            cast("Any", request).jira_key = "NEW-123"
 
 
 class TestStreamUpdate:
@@ -120,7 +121,7 @@ class TestStreamUpdate:
         """Test that StreamUpdate is immutable."""
         update = StreamUpdate("test", {}, "2023-01-01T00:00:00Z")
         with pytest.raises(AttributeError):
-            update.update_type = "new_type"
+            cast("Any", update).update_type = "new_type"
 
 
 class TestDevHubClient:
@@ -658,7 +659,9 @@ class TestDevHubClient:
             assert update.timestamp == "2023-01-01T00:00:00Z"
 
             # Stop the stream by raising StopAsyncIteration
-            await stream.aclose()
+            from typing import cast
+
+            await cast("Any", stream).aclose()
 
     @pytest.mark.asyncio
     async def test_execute_cli_command_success(self):
@@ -740,6 +743,7 @@ class TestDevHubClient:
 
         bundle_data = client._json_to_bundle_data(json_data, repo, "main")
 
+        assert bundle_data.jira_issue is not None
         assert bundle_data.jira_issue.key == "TEST-123"
         assert bundle_data.jira_issue.summary == "Test issue"
         assert bundle_data.pr_data == {"number": 456}
@@ -755,7 +759,7 @@ class TestDevHubClient:
         client = DevHubClient()
         repo = Repository(owner="test", name="repo")
 
-        json_data = {}
+        json_data: dict[str, Any] = {}
 
         bundle_data = client._json_to_bundle_data(json_data, repo, "main")
 
@@ -1002,7 +1006,7 @@ class TestDevHubClient:
 
         call_count = 0
 
-        async def mock_get_pr_details(pr_number: int) -> Success | Failure:
+        async def mock_get_pr_details(pr_number: int) -> Success[dict[str, Any]] | Failure[str]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1024,7 +1028,7 @@ class TestDevHubClient:
             updates.append(update)
 
             # Close the stream to prevent hanging
-            await stream.aclose()
+            await cast("Any", stream).aclose()
 
             assert len(updates) == 1
             assert updates[0].update_type == "pr_updated"
