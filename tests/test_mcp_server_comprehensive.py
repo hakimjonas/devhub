@@ -827,8 +827,6 @@ class TestMCPServerMain:
             mock_stdin.readline.side_effect = mock_stdin_lines
 
             with patch("devhub.mcp_server_comprehensive.asyncio.create_task") as mock_create_task:
-                # Fix the coroutine call - asyncio doesn't have a 'coroutine' attribute
-                # Instead, we'll mock the task creation directly
                 mock_task = Mock()
                 mock_create_task.return_value = mock_task
 
@@ -886,7 +884,11 @@ class TestMCPServerMain:
 
     def test_cli_main_test_option(self):
         """Test CLI main with --test option."""
-        with patch("sys.argv", ["devhub-mcp", "--test"]), patch("asyncio.run") as mock_asyncio_run:
+        with (
+            patch("sys.argv", ["devhub-mcp", "--test"]),
+            patch("devhub.mcp_server._test_mcp_server", new=lambda: object()),
+            patch("asyncio.run") as mock_asyncio_run,
+        ):
             cli_main()
 
             mock_asyncio_run.assert_called_once()
@@ -901,6 +903,7 @@ class TestMCPServerMain:
         with (
             patch("sys.argv", ["devhub-mcp"]),
             patch("logging.basicConfig") as mock_logging,
+            patch("devhub.mcp_server.main", new=lambda: object()),
             patch("asyncio.run") as mock_asyncio_run,
         ):
             cli_main()
@@ -913,6 +916,7 @@ class TestMCPServerMain:
         with (
             patch("sys.argv", ["devhub-mcp", "--server"]),
             patch("logging.basicConfig") as mock_logging,
+            patch("devhub.mcp_server.main", new=lambda: object()),
             patch("asyncio.run") as mock_asyncio_run,
         ):
             cli_main()

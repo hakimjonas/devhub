@@ -2,6 +2,8 @@
 
 import json
 import time
+from collections.abc import Awaitable
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -185,9 +187,7 @@ class TestDevHubClient:
         """Test get_bundle_context when not initialized."""
         client = DevHubClient()
 
-        with patch.object(client, "initialize") as mock_init:
-            mock_init.return_value = Failure("Init error")
-
+        with patch.object(client, "initialize", new=AsyncMock(return_value=Failure("Init error"))):
             result = await client.get_bundle_context()
 
             assert isinstance(result, Failure)
@@ -227,18 +227,23 @@ class TestDevHubClient:
         client = DevHubClient(config)
         client._devhub_config = DevHubConfig()
 
-        with patch.object(client, "_build_bundle_context") as mock_build:
-            mock_bundle_data = BundleData(
-                jira_issue=None,
-                pr_data=None,
-                pr_diff=None,
-                comments=(),
-                repository=Repository(owner="test", name="repo"),
-                branch="main",
-                metadata={},
-            )
-            mock_build.return_value = Success(mock_bundle_data)
-
+        with patch.object(
+            client,
+            "_build_bundle_context",
+            new=AsyncMock(
+                return_value=Success(
+                    BundleData(
+                        jira_issue=None,
+                        pr_data=None,
+                        pr_diff=None,
+                        comments=(),
+                        repository=Repository(owner="test", name="repo"),
+                        branch="main",
+                        metadata={},
+                    )
+                )
+            ),
+        ) as mock_build:
             result = await client.get_bundle_context()
 
             assert isinstance(result, Success)
@@ -250,9 +255,7 @@ class TestDevHubClient:
         client = DevHubClient()
         client._devhub_config = DevHubConfig()
 
-        with patch.object(client, "_build_bundle_context") as mock_build:
-            mock_build.side_effect = ValueError("Test error")
-
+        with patch.object(client, "_build_bundle_context", new=AsyncMock(side_effect=ValueError("Test error"))):
             result = await client.get_bundle_context()
 
             assert isinstance(result, Failure)
@@ -613,18 +616,23 @@ class TestDevHubClient:
         """Test get_current_branch_context."""
         client = DevHubClient()
 
-        with patch.object(client, "get_bundle_context") as mock_get_bundle:
-            mock_bundle_data = BundleData(
-                jira_issue=None,
-                pr_data=None,
-                pr_diff=None,
-                comments=(),
-                repository=Repository(owner="test", name="repo"),
-                branch="main",
-                metadata={},
-            )
-            mock_get_bundle.return_value = Success(mock_bundle_data)
-
+        with patch.object(
+            client,
+            "get_bundle_context",
+            new=AsyncMock(
+                return_value=Success(
+                    BundleData(
+                        jira_issue=None,
+                        pr_data=None,
+                        pr_diff=None,
+                        comments=(),
+                        repository=Repository(owner="test", name="repo"),
+                        branch="main",
+                        metadata={},
+                    )
+                )
+            ),
+        ) as mock_get_bundle:
             result = await client.get_current_branch_context(
                 include_diff=False, include_comments=False, comment_limit=10
             )
@@ -672,9 +680,14 @@ class TestDevHubClient:
         mock_process.returncode = 0
         mock_process.communicate.return_value = (b"output", b"")
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
+        async def fake_wait_for(awaitable: Awaitable[object], *_: object, **__: object) -> object:
+            return await awaitable
+
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_create_process,
+            patch("asyncio.wait_for", new=AsyncMock(side_effect=fake_wait_for)),
+        ):
             mock_create_process.return_value = mock_process
-            mock_wait.return_value = (b"output", b"")
 
             result = await client.execute_cli_command(["bundle", "--help"])
 
@@ -690,9 +703,14 @@ class TestDevHubClient:
         mock_process.returncode = 1
         mock_process.communicate.return_value = (b"", b"error message")
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
+        async def fake_wait_for(awaitable: Awaitable[object], *_: object, **__: object) -> object:
+            return await awaitable
+
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_create_process,
+            patch("asyncio.wait_for", new=AsyncMock(side_effect=fake_wait_for)),
+        ):
             mock_create_process.return_value = mock_process
-            mock_wait.return_value = (b"", b"error message")
 
             result = await client.execute_cli_command(["invalid", "command"])
 
@@ -704,10 +722,25 @@ class TestDevHubClient:
         """Test execute_cli_command timeout."""
         client = DevHubClient()
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
-            mock_create_process.return_value = AsyncMock()
-            mock_wait.side_effect = TimeoutError()
+        class _NonCoroutineAwaitable:
+            def __await__(self) -> Iterator[None]:
+                # Return an empty iterator; wait_for will raise before awaiting.
+                return iter(())
 
+        class _Proc:
+            returncode = 0
+
+            def communicate(self) -> _NonCoroutineAwaitable:
+                # Return a non-coroutine awaitable to avoid un-awaited coroutine warnings
+                return _NonCoroutineAwaitable()
+
+        async def fake_create_subprocess_exec(*args: object, **kwargs: object) -> _Proc:
+            return _Proc()
+
+        with (
+            patch("asyncio.create_subprocess_exec", new=fake_create_subprocess_exec),
+            patch("asyncio.wait_for", new=AsyncMock(side_effect=TimeoutError())),
+        ):
             result = await client.execute_cli_command(["slow", "command"])
 
             assert isinstance(result, Failure)
@@ -912,9 +945,7 @@ class TestDevHubClient:
         """Test get_jira_issue when not initialized."""
         client = DevHubClient()
 
-        with patch.object(client, "initialize") as mock_init:
-            mock_init.return_value = Failure("Init failed")
-
+        with patch.object(client, "initialize", new=AsyncMock(return_value=Failure("Init failed"))):
             result = await client.get_jira_issue("TEST-123")
 
             assert isinstance(result, Failure)
@@ -977,9 +1008,14 @@ class TestDevHubClient:
         mock_process.returncode = 0
         mock_process.communicate.return_value = (None, None)
 
-        with patch("asyncio.create_subprocess_exec") as mock_create_process, patch("asyncio.wait_for") as mock_wait:
+        async def fake_wait_for(awaitable: Awaitable[object], *_: object, **__: object) -> object:
+            return await awaitable
+
+        with (
+            patch("asyncio.create_subprocess_exec") as mock_create_process,
+            patch("asyncio.wait_for", new=AsyncMock(side_effect=fake_wait_for)),
+        ):
             mock_create_process.return_value = mock_process
-            mock_wait.return_value = (None, None)
 
             result = await client.execute_cli_command(["test"], capture_output=False)
 
