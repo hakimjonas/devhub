@@ -1,0 +1,4 @@
+# file: /home/hakim/tools/devhub/src/devhub/sdk.py
+# hypothesis_version: 6.138.7
+
+[300, 'BundleData', 'Command failed', 'ContextRequest', 'DevHubAsyncClient', 'DevHubClient', 'SDKConfig', 'StreamUpdate', 'author', 'body', 'bundle', 'comments', 'created_at', 'description', 'devhub', 'diff', 'diff_hunk', 'get_context_for_jira', 'get_context_for_pr', 'get_current_context', 'id', 'jira', 'json', 'key', 'metadata', 'object', 'path', 'pr_updated', 'pull_request', 'raw_data', 'resolved', 'run', 'summary', 'updated_at', 'uv']

@@ -6,17 +6,29 @@ DevHub is a sophisticated CLI tool that demonstrates clean, maintainable Python 
 
 ## 📚 Documentation
 
-- SDK Guide (async-first usage with DevHubAsyncClient): docs/SDK_GUIDE.md
-- IDE Integrations (VS Code and Cursor step-by-step): docs/IDE_INTEGRATIONS.md
+- **SDK Guide**: [docs/SDK_GUIDE.md](docs/SDK_GUIDE.md) - Complete guide to the DevHubClient async API
+- **IDE Integrations**: [docs/IDE_INTEGRATIONS.md](docs/IDE_INTEGRATIONS.md) - Step-by-step VS Code and Cursor integration guides
 
 ## 🚀 Features
 
+### Core Functionality
+- **Comprehensive Bundle Generation**: Combines Jira issues, GitHub PRs, diffs, and review comments into structured bundles
+- **Intelligent Auto-Detection**: Automatically resolves Jira keys and PR numbers from branch names and repository context
+- **Flexible Output Formats**: Generate both human-readable files and structured JSON for programmatic use
+- **Selective Data Inclusion**: Fine-grained control over what data to include (Jira, PR, diff, comments)
+
+### Architecture & Quality
 - **Organization-First Configuration**: Multi-tenant support with hierarchical configuration system
 - **Immutable Data Architecture**: All data structures are frozen dataclasses ensuring thread safety
 - **Type-Safe Operations**: 100% type coverage with strict mypy and pyright compliance
-- **Functional Error Handling**: Uses `returns.Result` for explicit error propagation
-- **Property-Based Testing**: Comprehensive test suite with Hypothesis for robust validation
+- **Functional Error Handling**: Uses `returns.Result` for explicit error propagation without exceptions
+- **Property-Based Testing**: Comprehensive test suite with Hypothesis for robust validation (92.89% coverage)
 - **Zero-Mutation Design**: Pure functions and immutable collections throughout
+
+### AI Agent Integration
+- **MCP (Model Context Protocol) Server**: Native support for AI agents like Claude Desktop
+- **Async-First SDK**: High-performance `DevHubClient` for programmatic access
+- **Real-Time Context**: Live development context for AI-assisted code review and analysis
 
 ## 📋 Requirements
 
@@ -49,52 +61,18 @@ devhub doctor
 # Install globally using uv
 uv tool install devhub
 
-# Or install from Git repository
-uv tool install git+https://github.com/hakimjonas/devhub.git
+# Install from PyPI using uv
+uv add devhub
 
 # Verify installation
 devhub --version
 devhub doctor
 ```
 
-### 🐳 Docker (Containerized)
+### 🔧 Development Installation
 
 ```bash
-# Pull and run from GitHub Container Registry
-docker run --rm ghcr.io/hakimjonas/devhub:latest --version
-
-# Interactive usage with mounted workspace
-docker run --rm -it \
-  -v $(pwd):/workspace \
-  -v ~/.config/devhub:/home/devhub/.config/devhub:ro \
-  -v ~/.config/gh:/home/devhub/.config/gh:ro \
-  ghcr.io/hakimjonas/devhub:latest doctor
-
-# Using docker-compose for development
-docker-compose run --rm devhub doctor
-```
-
-### 🍺 Homebrew (macOS/Linux)
-
-```bash
-# Install from local formula (development)
-git clone https://github.com/hakimjonas/devhub.git
-cd devhub
-brew install --build-from-source homebrew/devhub.rb
-
-# Future: Install from tap (when published)
-# brew tap hakimjonas/devhub
-# brew install devhub
-
-# Verify installation
-devhub --version
-devhub doctor
-```
-
-### 🔧 Development Setup
-
-```bash
-# Clone and set up development environment
+# Clone the repository
 git clone https://github.com/hakimjonas/devhub.git
 cd devhub
 
@@ -110,27 +88,9 @@ uv run devhub doctor
 uv run pytest
 ```
 
-### 🔍 Installation Verification
+## 🎯 Quick Start
 
-After installation, verify DevHub is working correctly:
-
-```bash
-# Check version
-devhub --version
-# Output: devhub 0.1.0
-
-# Run comprehensive health checks
-devhub doctor
-# Output: DevHub Health Check Results with system status
-
-# View available commands
-devhub --help
-
-# Test basic functionality (in a git repository)
-devhub bundle --help
-```
-
-### 🎯 Quick Start Test
+### Basic Usage
 
 ```bash
 # Navigate to any git repository
@@ -139,8 +99,63 @@ cd /path/to/your/git/repo
 # Run health check to verify setup
 devhub doctor
 
-# Create a test bundle (requires GitHub CLI authentication)
-devhub bundle --jira-key TEST-123
+# Auto-detect and bundle current branch context
+devhub bundle
+
+# Bundle specific Jira issue with auto-detected PR
+devhub bundle --jira-key PROJ-123
+
+# Bundle specific PR with auto-detected Jira issue
+devhub bundle --pr-number 456
+
+# Bundle with selective data inclusion
+devhub bundle --jira-key PROJ-123 --no-diff --no-comments
+
+# Generate JSON output for programmatic use
+devhub bundle --jira-key PROJ-123 --format json
+```
+
+### Setup Wizard
+
+For first-time setup, DevHub provides an interactive configuration wizard:
+
+```bash
+# Run the setup wizard (auto-detects if configuration is needed)
+devhub doctor
+
+# The wizard will guide you through:
+# - GitHub CLI authentication verification
+# - Jira credentials setup (optional)
+# - Organization configuration
+# - Testing your setup
+```
+
+### Configuration
+
+DevHub supports both environment variables and configuration files:
+
+```bash
+# Environment variables (recommended for CI/CD)
+export JIRA_BASE_URL="https://your-domain.atlassian.net"
+export JIRA_EMAIL="your.email@company.com"
+export JIRA_API_TOKEN="your-api-token"
+export GITHUB_TOKEN="your-github-token"
+
+# Or use configuration file (~/.config/devhub/config.toml)
+# See devhub doctor for configuration guidance
+```
+
+### Output Structure
+
+DevHub creates organized bundle directories:
+
+```
+PROJ-123-20241203-143022/
+├── bundle.json              # Structured data for programmatic use
+├── 1-jira-issue.md         # Jira issue details
+├── 2-pr-details.md         # GitHub PR information
+├── 3-pr-diff.patch         # Code changes
+└── 4-unresolved-comments.md # Review comments needing attention
 ```
 
 ## 🤖 AI Agent Integration (MCP Mode)
@@ -199,444 +214,157 @@ When connected as an MCP server, DevHub provides these tools to AI agents:
 Once configured, AI agents can use natural language to:
 
 ```
-"Show me the context for JIRA-123 including the PR and comments"
-→ Uses get-bundle-context with jira_key="JIRA-123"
-
-"Get the details for PR #42 without the diff"  
-→ Uses get-pr-details with pr_number=42, include_diff=false
-
-"What's the current branch context?"
-→ Uses get-current-branch-context to auto-detect and fetch context
+"Get the context for PROJ-123 including the diff and unresolved comments"
+"Show me the details of PR #456 without the full diff"
+"What's the current status of my branch and any related PRs?"
+"Fetch all unresolved review comments for the current PR"
 ```
 
-### 🐛 Troubleshooting Installation
+## 🧩 Programmatic Usage
 
-If you encounter issues:
+For advanced integration and custom tooling, use the async SDK:
 
-1. **Check dependencies**:
-   ```bash
-   devhub doctor  # Shows missing dependencies
-   ```
+```python
+import asyncio
+from devhub.sdk import DevHubClient, ContextRequest
+from returns.result import Success, Failure
 
-2. **Verify GitHub CLI is installed and authenticated**:
-   ```bash
-   gh auth status
-   ```
+async def main():
+    # Create a context request
+    request = ContextRequest(
+        jira_key="PROJ-123",
+        include_diff=True,
+        include_comments=True,
+        comment_limit=20
+    )
+    
+    # Use the async client
+    client = DevHubClient()
+    await client.initialize()
+    
+    result = await client.get_bundle_context(request)
+    
+    match result:
+        case Success(bundle):
+            print(f"Repository: {bundle.repository.owner}/{bundle.repository.name}")
+            print(f"Branch: {bundle.branch}")
+            if bundle.jira_issue:
+                print(f"Jira: {bundle.jira_issue.key} - {bundle.jira_issue.summary}")
+            print(f"Unresolved comments: {len(bundle.comments)}")
+        case Failure(error):
+            print(f"Error: {error}")
 
-3. **For Docker issues**, ensure Docker is running:
-   ```bash
-   docker --version
-   docker run hello-world
-   ```
-
-4. **For permission issues** with pip:
-   ```bash
-   pip install --user devhub  # Install for current user only
-   ```
-
-5. **For Python version conflicts**:
-   ```bash
-   python --version  # Should be 3.13+
-   pipx install devhub  # Isolated installation
-   ```
-
-## ⚙️ Configuration
-
-DevHub uses a hierarchical configuration system supporting multiple organizations with different settings.
-
-### Configuration File Locations
-
-DevHub follows the XDG Base Directory specification and searches for configuration files in this order:
-
-1. **`DEVHUB_CONFIG`** - Explicit config file path (environment variable)
-2. **`.devhub.json`** - Project-local configuration
-3. **`$XDG_CONFIG_HOME/devhub/config.json`** - User XDG config (default: `~/.config/devhub/config.json`)
-4. **`$XDG_CONFIG_DIRS/devhub/config.json`** - System XDG config dirs (default: `/etc/xdg/devhub/config.json`)
-
-#### Configuration Override Examples
-
-**Explicit configuration file:**
-```bash
-export DEVHUB_CONFIG="/path/to/my/devhub-config.json"
-devhub bundle  # Uses the specified config file
+asyncio.run(main())
 ```
 
-**Custom XDG paths:**
-```bash
-export XDG_CONFIG_HOME="/custom/config"
-# DevHub will look for /custom/config/devhub/config.json
+See [docs/SDK_GUIDE.md](docs/SDK_GUIDE.md) for complete SDK documentation and examples.
 
-export XDG_CONFIG_DIRS="/etc/xdg:/usr/local/etc:/opt/etc"
-# DevHub will search each directory for devhub/config.json
-```
+## 📊 Command Reference
 
-**Recommended locations for new users:**
-- **User configuration:** `~/.config/devhub/config.json`
-- **System configuration:** `/etc/xdg/devhub/config.json`
-- **Container/CI environments:** Use `DEVHUB_CONFIG` to specify exact path
-
-### Basic Configuration
-
-Create `~/.config/devhub/config.json` (recommended XDG location):
-
-```json
-{
-  "config_version": "1.0",
-  "default_organization": "my-company",
-  "organizations": {
-    "my-company": {
-      "description": "My Company Development",
-      "jira": {
-        "base_url": "https://mycompany.atlassian.net",
-        "default_project_prefix": "PROJ",
-        "timeout_seconds": 30
-      },
-      "github": {
-        "default_org": "my-company",
-        "use_ssh": true
-      },
-      "output": {
-        "base_directory": "review-bundles",
-        "include_timestamps": true
-      },
-      "bundle_defaults": {
-        "include_jira": true,
-        "include_pr": true,
-        "include_diff": true,
-        "include_comments": true,
-        "comment_limit": 15,
-        "diff_context_lines": 3
-      }
-    }
-  },
-  "global_jira": {
-    "timeout_seconds": 45,
-    "max_retries": 3
-  }
-}
-```
-
-### Multi-Organization Setup
-
-For teams working with multiple organizations:
-
-```json
-{
-  "config_version": "1.0",
-  "default_organization": "client-a",
-  "organizations": {
-    "client-a": {
-      "description": "Client A Projects",
-      "jira": {
-        "base_url": "https://clienta.atlassian.net",
-        "default_project_prefix": "CA"
-      },
-      "github": {
-        "default_org": "client-a-org"
-      }
-    },
-    "client-b": {
-      "description": "Client B Projects", 
-      "jira": {
-        "base_url": "https://clientb.atlassian.net",
-        "default_project_prefix": "CB"
-      },
-      "github": {
-        "default_org": "client-b-org"
-      }
-    },
-    "internal": {
-      "description": "Internal Tools",
-      "github": {
-        "default_org": "my-company"
-      }
-    }
-  }
-}
-```
-
-### Environment Variables
-
-#### Configuration File Override
-
-```bash
-# Explicit config file path (highest priority)
-export DEVHUB_CONFIG="/path/to/specific/config.json"
-
-# XDG Base Directory specification
-export XDG_CONFIG_HOME="/custom/config"      # Default: ~/.config
-export XDG_CONFIG_DIRS="/etc/xdg:/usr/local/etc"  # Default: /etc/xdg
-```
-
-#### Credentials (Sensitive Data)
-
-Sensitive credentials should use environment variables:
-
-```bash
-export JIRA_EMAIL="your-email@company.com"
-export JIRA_API_TOKEN="your-jira-api-token"
-
-# Optional: Override organization selection
-export DEVHUB_ORGANIZATION="client-a"
-```
-
-
-## 🎯 Quick Start
-
-### Basic Bundle Creation
-
-```bash
-# Bundle everything for current branch (auto-detects Jira key)
-devhub bundle
-
-# Bundle with specific Jira key  
-devhub bundle --jira-key PROJ-123
-
-# Bundle for specific PR
-devhub bundle --pr 456
-
-# Custom output location
-devhub bundle --out ~/reviews/proj-123-review
-```
-
-### Selective Bundling
-
-```bash
-# Only Jira issue + PR metadata (skip diff and comments)
-devhub bundle --no-diff --no-comments
-
-# Only review comments with higher limit
-devhub bundle --no-jira --no-pr --no-diff --limit 25
-
-# PR and diff only (skip Jira and comments)
-devhub bundle --no-jira --no-comments
-```
-
-## 📚 Command Reference
-
-### `bundle` - Complete Review Package
-
-Creates a comprehensive review bundle with all relevant information.
+### Bundle Command
 
 ```bash
 devhub bundle [OPTIONS]
 
 Options:
-  --jira-key KEY         Specific Jira issue key (e.g., PROJ-123)
-  --pr NUMBER           Specific GitHub PR number
-  --branch NAME         Branch name (for PR lookup and Jira key inference)
-  --out DIRECTORY       Output directory path
-  --limit NUMBER        Max unresolved comments to include (default: 10)
-  --no-jira            Skip Jira issue fetching
-  --no-pr              Skip PR metadata fetching  
-  --no-diff            Skip PR diff fetching
-  --no-comments        Skip review comments fetching
-  --org ORGANIZATION   Override default organization
+  --jira-key TEXT        Jira issue key (e.g., PROJ-123)
+  --pr-number INTEGER    Pull request number
+  --branch TEXT          Git branch name (defaults to current)
+  --output-dir TEXT      Output directory (defaults to auto-generated)
+  --organization TEXT    GitHub organization override
+  --limit INTEGER        Limit for comments (default: 10)
+  --format FORMAT        Output format: files|json (default: files)
+  --no-jira             Exclude Jira data
+  --no-pr               Exclude PR data  
+  --no-diff             Exclude PR diff
+  --no-comments         Exclude unresolved comments
 ```
 
-### Advanced Bundle Examples
+### Doctor Command
 
 ```bash
-# Bundle with organization override
-devhub bundle --jira-key CA-456 --org client-a
+devhub doctor
 
-# High-comment limit for complex reviews
-devhub bundle --limit 50 --pr 789
-
-# Minimal bundle for quick PR check
-devhub bundle --no-jira --no-comments --pr 123
+# Comprehensive health check including:
+# - Python version verification
+# - Git repository detection
+# - GitHub CLI authentication
+# - Jira credentials validation
+# - Configuration file verification
+# - Network connectivity tests
 ```
 
-## 📁 Output Structure
+## 🔧 Development
 
-DevHub creates organized directories with consistent naming:
+### Code Quality Standards
 
-```
-review-bundles/
-└── PROJ-123-20240128-143022/
-    ├── jira_PROJ-123.json          # Complete Jira issue data
-    ├── jira_PROJ-123.md            # Human-readable summary
-    ├── pr_456.json                 # PR metadata and details
-    ├── pr_456.md                   # Formatted PR information
-    ├── pr_456.diff                 # Complete code diff
-    └── unresolved_comments_pr456.json  # Review comments
-```
+DevHub maintains exceptional code quality through:
 
-### File Contents
+- **100% Type Coverage**: Strict mypy and pyright compliance
+- **92.89% Test Coverage**: Comprehensive pytest suite with property-based testing
+- **Zero Warnings**: Clean ruff, bandit, and semgrep scans
+- **Functional Purity**: Immutable data structures and pure functions
+- **Comprehensive Documentation**: All public APIs documented
 
-- **Jira JSON**: Complete API response with all fields and metadata
-- **Jira Markdown**: Clean summary with description, acceptance criteria, and links
-- **PR JSON**: GitHub API response with full PR details
-- **PR Markdown**: Formatted PR title, description, author, and key metadata  
-- **Diff File**: Git-style unified diff of all changes
-- **Comments JSON**: Structured unresolved review comments with context
-
-## 🔧 Advanced Configuration
-
-### Custom Output Formatting
-
-```json
-{
-  "output": {
-    "base_directory": "code-reviews",
-    "include_timestamps": false,
-    "file_permissions": 644,
-    "directory_permissions": 755
-  }
-}
-```
-
-### Jira Integration Tuning
-
-```json
-{
-  "jira": {
-    "base_url": "https://company.atlassian.net",
-    "timeout_seconds": 60,
-    "max_retries": 5,
-    "default_project_prefix": "MYPROJ"
-  }
-}
-```
-
-### GitHub API Optimization
-
-```json
-{
-  "github": {
-    "timeout_seconds": 45,
-    "max_retries": 3,
-    "use_ssh": true,
-    "default_org": "my-github-org"
-  }
-}
-```
-
-## 🧪 Development & Testing
-
-DevHub maintains exceptional code quality standards:
+### Running Tests
 
 ```bash
-# Run complete test suite with coverage
-uv run pytest --cov-report=html
+# Full test suite with coverage
+uv run pytest
 
-# Type checking with multiple tools
-uv run mypy src/
-uv run pyright src/
+# Run specific test categories
+uv run pytest -m unit
+uv run pytest -m integration
+uv run pytest -m property
+
+# Performance testing
+uv run pytest -m slow
+
+# Parallel execution
+uv run pytest -n auto
+```
+
+### Code Quality Checks
+
+```bash
+# Type checking
+uv run mypy src/devhub
+uv run pyright src/devhub
 
 # Linting and formatting
-uv run ruff check .
-uv run ruff format .
+uv run ruff check src/devhub
+uv run ruff format src/devhub
 
 # Security scanning
-uv run bandit -r src/
-uv run semgrep --config=auto src/
+uv run bandit -r src/devhub
+uv run semgrep --config=auto src/devhub
 
-# Property-based testing
-uv run pytest tests/ -k property
-```
-
-### Quality Metrics
-
-- **Test Coverage**: 87%+ with meaningful path coverage
-- **Type Safety**: 100% type annotation coverage
-- **Code Quality**: Ruff with ALL rules enabled
-- **Security**: Regular scanning with bandit and semgrep
-- **Functional Purity**: Immutable data structures throughout
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-#### Authentication Problems
-```bash
-# GitHub CLI not authenticated
-gh auth login
-
-# Jira credentials issues
-export JIRA_EMAIL="your-email@domain.com"
-export JIRA_API_TOKEN="your-api-token"
-```
-
-#### Repository Context
-```bash
-# Must be run inside a Git repository
-cd /path/to/your/git/repo
-devhub bundle
-```
-
-#### PR Detection Issues
-```bash
-# Specify PR explicitly if auto-detection fails
-devhub bundle --pr 123
-
-# Or specify exact branch name
-devhub bundle --branch "feature/PROJ-123-add-feature"
-```
-
-### Debug Mode
-
-Enable verbose logging for troubleshooting:
-
-```bash
-export DEVHUB_DEBUG=1
-devhub bundle --jira-key PROJ-123
-```
-
-## 🏛️ Architecture Philosophy
-
-DevHub exemplifies functional programming principles in Python:
-
-### Immutability First
-- All data structures are `@dataclass(frozen=True)`
-- No mutable state or in-place modifications
-- Thread-safe by design
-
-### Type Safety Excellence
-- Comprehensive type hints with `mypy` strict mode
-- `returns.Result` for explicit error handling
-- No `Any` types except for external API boundaries
-
-### Pure Functions
-- Side effects isolated to dedicated modules
-- Predictable input/output relationships
-- Easy testing and reasoning
-
-### Composition Over Inheritance
-- Data transformation pipelines
-- Function composition patterns
-- Modular, reusable components
-
-## 🤝 Contributing
-
-We welcome contributions that maintain our high standards:
-
-1. **Follow Functional Programming Guidelines**: See [CONTRIBUTING.md](CONTRIBUTING.md)
-2. **Maintain Type Safety**: All code must pass `mypy --strict`
-3. **Add Comprehensive Tests**: Include unit, integration, and property-based tests
-4. **Document Thoroughly**: Use Google-style docstrings
-5. **Use Immutable Patterns**: No mutable data structures
-
-### Development Workflow
-
-```bash
-# Set up development environment
-uv sync
-uv run pre-commit install
-
-# Run quality checks
-uv run pytest
-uv run mypy src/
-uv run ruff check .
-
-# Submit changes
-git commit -m "feat(core): add immutable feature"
+# Dead code detection
+uv run vulture src/devhub
 ```
 
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+## 🤝 Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Key Principles
+
+- **Functional Programming**: Prefer immutable data and pure functions
+- **Type Safety**: All code must pass strict type checking
+- **Test Coverage**: Maintain >90% coverage with meaningful tests
+- **Documentation**: Document all public APIs and design decisions
+
+## 🔗 Links
+
+- **Repository**: https://github.com/hakimjonas/devhub
+- **Issues**: https://github.com/hakimjonas/devhub/issues
+- **PyPI**: https://pypi.org/project/devhub/
+- **Documentation**: [docs/](docs/)
+
 ---
 
-**DevHub**: *Where functional programming meets practical development tools.*
+DevHub exemplifies modern Python development practices while solving real-world code review challenges. Built with functional programming principles for reliability, maintainability, and extensibility.
