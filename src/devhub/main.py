@@ -852,15 +852,17 @@ def _process_jira_data(
     if isinstance(jira_res, Failure):
         return Failure(f"Failed to fetch Jira data: {jira_res.failure()}")
 
-    return Success(BundleData(
-        jira_issue=jira_res.unwrap(),
-        pr_data=bundle.pr_data,
-        pr_diff=bundle.pr_diff,
-        comments=bundle.comments,
-        repository=bundle.repository,
-        branch=bundle.branch,
-        metadata=bundle.metadata,
-    ))
+    return Success(
+        BundleData(
+            jira_issue=jira_res.unwrap(),
+            pr_data=bundle.pr_data,
+            pr_diff=bundle.pr_diff,
+            comments=bundle.comments,
+            repository=bundle.repository,
+            branch=bundle.branch,
+            metadata=bundle.metadata,
+        )
+    )
 
 
 def _process_pr_data(

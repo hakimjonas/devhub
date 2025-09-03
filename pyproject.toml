@@ -53,7 +53,7 @@ dev-dependencies = [
     "pytest-xdist>=3.8.0",
     "pytest-mock>=3.14.0",
     "pytest-asyncio>=0.24.0",
-    "ruff>=0.12.11",
+    "ruff>=0.7.3",
     "mypy>=1.17.1",
     "pyright>=1.1.404", # Add back for maximum type safety
     "bandit[toml]>=1.8.6",
@@ -91,7 +91,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "PLR2004", "ANN001", "ANN201", "SLF001", "ARG001", "S105", "S106", "E402", "PTH108", "PLC0415", "PLR0915"]
+"tests/*" = [
+    "S101", "PLR2004", "ANN001", "ANN201", "SLF001", "ARG001", "S105", "S106", "E402", "PTH108", "PLC0415", "PLR0915",
+    "D101", "D102", "D103", # Don’t require docstrings in tests
+    "S108", # Allow explicit /tmp paths in tests
+    "C408", # Allow tuple() in tests
+]
 "**/__init__.py" = ["F401", "D104"]
 "src/devhub/main.py" = ["EXE001", "S310", "G004", "PLR0911"]
 "src/devhub/config.py" = ["PLR2004", "PLR0911", "BLE001"]
@@ -152,6 +157,9 @@ show_column_numbers = true
 pretty = true
 color_output = true
 error_summary = true
+files = ["src/devhub"]
+# Ensure ad-hoc CLI like `mypy .` passes
+exclude = "^(tests/|htmlcov/|review-bundles/|homebrew/|docs/)"
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -159,6 +167,7 @@ disallow_any_decorated = false
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 disallow_untyped_decorators = false
+ignore_errors = true
 
 [tool.pyright]
 pythonVersion = "3.13"

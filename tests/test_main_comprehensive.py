@@ -719,13 +719,14 @@ class TestMainCLIFunctions:
 
             # Mock HTTP error - using proper type for hdrs parameter
             from email.message import Message
+
             hdrs = Message()
             error = urllib.error.HTTPError(
                 url="https://test.atlassian.net/rest/api/3/issue/TEST-123",
                 code=404,
                 msg="Not Found",
                 hdrs=hdrs,  # Pass proper Message object instead of None
-                fp=None
+                fp=None,
             )
             # Use setattr to assign read method to avoid method assignment error
             error.read = Mock(return_value=b"Issue not found")

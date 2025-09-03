@@ -6,25 +6,26 @@ DevHub's configuration system is designed around **immutable data structures** a
 
 ## Configuration Architecture
 
-### Hierarchical Loading System
+### Search Order and Loading
 
-DevHub searches for configuration files in the following order:
+DevHub looks for a JSON config file in this order and loads the first one that exists:
 
-1. **Project-local**: `.devhub.json` (highest priority)
-2. **User-specific**: `~/.devhub/config.json`
-3. **System-wide**: `/etc/devhub/config.json` (Unix/Linux only)
-4. **Environment variables**: Override specific values
-5. **Built-in defaults**: Fallback for any unspecified values
+1. Explicit path via environment: `DEVHUB_CONFIG=/absolute/path/to/config.json`
+2. Project-local: `./.devhub.json`
+3. XDG user config: `$XDG_CONFIG_HOME/devhub/config.json` (default: `~/.config/devhub/config.json`)
+4. XDG system dirs: each `$XDG_CONFIG_DIRS/devhub/config.json` (default: `/etc/xdg/devhub/config.json`)
 
-### Configuration Merging Strategy
+Note: Only the first existing file is loaded; there is no automatic merging across multiple files. Environment variables can still override values after loading.
 
-Configuration follows a **functional composition** pattern where more specific settings override general ones:
+### Configuration Override Strategy
+
+Final configuration is produced as:
 
 ```
-System Config → User Config → Project Config → Environment Variables
+First-found JSON file → Environment variable overrides
 ```
 
-Each level can provide partial configuration; missing values cascade from more general sources.
+Each level can provide partial configuration; missing values fall back to built-in defaults.
 
 ## Configuration Schema
 
@@ -37,9 +38,9 @@ Each level can provide partial configuration; missing values cascade from more g
   "organizations": {
     "org-name": "Organization configuration object"
   },
-  "global_jira": "Global Jira settings object",
-  "global_github": "Global GitHub settings object",
-  "global_output": "Global output settings object"
+  "jira": "Global Jira settings object",
+  "github": "Global GitHub settings object",
+  "output": "Global output settings object"
 }
 ```
 
@@ -162,7 +163,7 @@ For consultants working with multiple clients:
       }
     }
   },
-  "global_jira": {
+  "jira": {
     "timeout_seconds": 60,
     "max_retries": 5
   }
@@ -199,78 +200,55 @@ For open source projects without Jira:
 
 ### Credential Management
 
-**Never store credentials in configuration files**. Use environment variables:
+Use environment variables for credentials (never store tokens in files):
 
 ```bash
 # Jira Authentication
 export JIRA_EMAIL="your-email@company.com"
 export JIRA_API_TOKEN="your-api-token"
-
-# Optional: Override organization
-export DEVHUB_ORGANIZATION="client-alpha"
-
-# Optional: Enable debug logging
-export DEVHUB_DEBUG="1"
 ```
 
-### Dynamic Configuration Override
-
-Environment variables can override specific configuration values:
+### Path and Organization Overrides
 
 ```bash
-# Override timeout for current session
+# Explicit config file path (highest precedence)
+export DEVHUB_CONFIG="/absolute/path/to/config.json"
+
+# Override default organization selection
+export DEVHUB_ORGANIZATION="client-alpha"
+```
+
+### Dynamic Configuration Overrides
+
+```bash
+# Override timeouts for current session
 export JIRA_TIMEOUT_SECONDS="90"
 export GITHUB_TIMEOUT_SECONDS="60"
 
-# Override default comment limit
-export BUNDLE_COMMENT_LIMIT="30"
-
-# Override output directory
+# Override output directory for bundles
 export BUNDLE_OUTPUT_DIR="/tmp/reviews"
 ```
 
+Supported environment variables (summary):
+- DEVHUB_CONFIG: absolute path to config JSON
+- DEVHUB_ORGANIZATION: sets default_organization at runtime
+- JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_DEFAULT_PROJECT, JIRA_TIMEOUT_SECONDS
+- GITHUB_DEFAULT_ORG, GITHUB_TIMEOUT_SECONDS
+- BUNDLE_OUTPUT_DIR
+
 ## Advanced Configuration Patterns
 
-### Configuration Composition
+### Configuration Placement
 
-Create modular configurations by composing smaller files:
+Prefer XDG locations for user/system config:
+- User: `$XDG_CONFIG_HOME/devhub/config.json` (defaults to `~/.config/devhub/config.json`)
+- System: each `$XDG_CONFIG_DIRS/devhub/config.json` (defaults to `/etc/xdg/devhub/config.json`)
 
-**Base configuration** (`~/.devhub/config.json`):
-```json
-{
-  "config_version": "1.0",
-  "global_jira": {
-    "timeout_seconds": 60,
-    "max_retries": 3
-  },
-  "global_output": {
-    "file_permissions": 644,
-    "directory_permissions": 755
-  }
-}
-```
-
-**Project-specific** (`.devhub.json`):
-```json
-{
-  "default_organization": "this-project",
-  "organizations": {
-    "this-project": {
-      "jira": {
-        "base_url": "https://project.atlassian.net",
-        "default_project_prefix": "PROJ"
-      },
-      "github": {
-        "default_org": "project-org"
-      }
-    }
-  }
-}
-```
+Project-specific overrides can live at `./.devhub.json` and will win over user/system files.
 
 ### Bundle Profile Configurations
 
-Define different bundle profiles for different use cases:
+Define different bundle profiles for different use cases (consumer logic can choose which to apply):
 
 ```json
 {
@@ -299,50 +277,12 @@ Define different bundle profiles for different use cases:
 
 ## Configuration Validation
 
-### Schema Validation
-
-DevHub performs comprehensive validation of configuration files:
-
-1. **JSON Syntax**: Valid JSON structure required
-2. **Schema Compliance**: All fields must match expected types
-3. **Reference Integrity**: `default_organization` must exist in `organizations`
-4. **Value Ranges**: Numeric values must be within reasonable ranges
-
-### Common Validation Errors
-
-**Invalid default organization**:
-```json
-{
-  "default_organization": "nonexistent",  // ERROR: Not in organizations
-  "organizations": {
-    "real-org": {}
-  }
-}
-```
-
-**Invalid timeout values**:
-```json
-{
-  "jira": {
-    "timeout_seconds": -5  // ERROR: Must be positive
-  }
-}
-```
-
-**Invalid permissions**:
-```json
-{
-  "output": {
-    "file_permissions": 999  // ERROR: Invalid octal permission
-  }
-}
-```
+DevHub validates:
+1. JSON syntax
+2. Schema basics (object shape)
+3. Reference integrity: `default_organization` must exist in `organizations` if provided
 
 ## Debugging Configuration
-
-### Configuration Inspection
-
-Use built-in commands to inspect active configuration:
 
 ```bash
 # Show effective configuration
@@ -358,8 +298,6 @@ devhub config validate
 devhub config show --org client-alpha
 ```
 
-### Configuration Debugging
-
 Enable detailed configuration logging:
 
 ```bash
@@ -367,148 +305,15 @@ export DEVHUB_CONFIG_DEBUG=1
 devhub bundle --jira-key PROJ-123
 ```
 
-This shows:
-- Configuration file search paths
-- Which files were loaded
-- How values were merged
-- Final effective configuration
+This shows search paths, which file was loaded, environment overlays, and the final effective configuration.
 
 ## Security Best Practices
 
-### Credential Security
-
-1. **Environment Variables Only**: Never store API tokens in files
-2. **File Permissions**: Restrict config file access (`chmod 600 ~/.devhub/config.json`)
-3. **Version Control**: Add `.devhub.json` to `.gitignore` for project configs with sensitive data
-4. **Token Rotation**: Regularly rotate API tokens
-
-### Safe Configuration Sharing
-
-**Safe to share**:
-```json
-{
-  "organizations": {
-    "company": {
-      "jira": {
-        "base_url": "https://company.atlassian.net",
-        "default_project_prefix": "PROJ"
-      },
-      "github": {
-        "default_org": "company-org"
-      }
-    }
-  }
-}
-```
-
-**Never share**:
-```json
-{
-  "jira": {
-    "email": "user@company.com",     // Sensitive
-    "api_token": "secret-token"      // Highly sensitive
-  }
-}
-```
-
-## Migration Guide
-
-### Upgrading Configuration Format
-
-When upgrading DevHub versions, configuration may need updates:
-
-**Version 1.0 → 1.1** (hypothetical):
-```bash
-# Backup existing config
-cp ~/.devhub/config.json ~/.devhub/config.json.backup
-
-# Use migration tool
-devhub config migrate --from 1.0 --to 1.1
-
-# Verify migration
-devhub config validate
-```
-
-### Legacy Configuration Support
-
-DevHub maintains backward compatibility:
-
-- **Version 1.0**: Current format (fully supported)
-- **Environment-only**: Automatic migration to file-based config
-
-## Functional Programming in Configuration
-
-### Immutable Configuration Objects
-
-All configuration is represented as **frozen dataclasses**:
-
-```python
-@dataclass(frozen=True, slots=True)
-class JiraConfig:
-    """Immutable Jira configuration."""
-    base_url: str | None = None
-    default_project_prefix: str | None = None
-    timeout_seconds: int = 30
-    # ... other fields
-```
-
-### Pure Configuration Functions
-
-Configuration loading and merging uses pure functions:
-
-```python
-def merge_configs(base: DevHubConfig, override: DevHubConfig) -> DevHubConfig:
-    """Pure function to merge two configurations."""
-    # Returns new configuration object
-    # No mutation of input parameters
-```
-
-### Result-Based Error Handling
-
-Configuration operations return `Result` types:
-
-```python
-def load_config() -> Result[DevHubConfig, str]:
-    """Load configuration with explicit error handling."""
-    # Returns Success(config) or Failure(error_message)
-```
-
-## Best Practices Summary
-
-1. **Hierarchical Organization**: Use global defaults, organization specifics, and project overrides
-2. **Environment Variables**: Keep credentials in environment, structure in files
-3. **Validation**: Always validate configuration before deployment
-4. **Documentation**: Document organization-specific conventions
-5. **Security**: Follow credential security best practices
-6. **Immutability**: Treat configuration as immutable once loaded
-7. **Type Safety**: Leverage DevHub's type-safe configuration system
-
-## Troubleshooting
-
-### Configuration Not Loading
-
-1. Check file permissions: `ls -la ~/.devhub/config.json`
-2. Validate JSON syntax: `python -m json.tool ~/.devhub/config.json`
-3. Enable debug logging: `export DEVHUB_CONFIG_DEBUG=1`
-
-### Organization Not Found
-
-```bash
-# List available organizations
-devhub config organizations
-
-# Set default organization
-export DEVHUB_ORGANIZATION="correct-org-name"
-```
-
-### Permission Errors
-
-```bash
-# Fix file permissions
-chmod 600 ~/.devhub/config.json
-chmod 700 ~/.devhub/
-```
+1. Environment variables only for secrets
+2. Restrict config file permissions (`chmod 600 ~/.config/devhub/config.json`)
+3. Add `.devhub.json` to `.gitignore` in repos
+4. Rotate API tokens regularly
 
 ---
 
-This configuration system exemplifies **functional programming principles** while providing the flexibility needed for complex development environments. The immutable, type-safe approach ensures reliable, predictable configuration management across all DevHub operations.
+This configuration system follows **functional programming principles** with **immutable dataclasses** and explicit `Result`-based error handling for reliable, predictable configuration management.

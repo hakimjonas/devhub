@@ -365,31 +365,57 @@ def load_config_with_environment(config_path: str | os.PathLike[str] | None = No
         cfg_result = load_config()
         base_config = cfg_result.unwrap() if isinstance(cfg_result, Success) else DevHubConfig()
 
+    # Helpers to parse optional integer env vars safely
+    def _get_int_env(name: str) -> int | None:
+        val = os.getenv(name)
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except ValueError:
+            return None
+
     # Create environment-based Jira config
     env_jira = JiraConfig(
         base_url=os.getenv("JIRA_BASE_URL") or base_config.global_jira.base_url,
         email=os.getenv("JIRA_EMAIL") or base_config.global_jira.email,
         api_token=os.getenv("JIRA_API_TOKEN") or base_config.global_jira.api_token,
         default_project_prefix=(os.getenv("JIRA_DEFAULT_PROJECT") or base_config.global_jira.default_project_prefix),
-        timeout_seconds=base_config.global_jira.timeout_seconds,
+        timeout_seconds=_get_int_env("JIRA_TIMEOUT_SECONDS") or base_config.global_jira.timeout_seconds,
         max_retries=base_config.global_jira.max_retries,
     )
 
     # Create environment-based GitHub config
     env_github = GitHubConfig(
         default_org=os.getenv("GITHUB_DEFAULT_ORG") or base_config.global_github.default_org,
-        timeout_seconds=base_config.global_github.timeout_seconds,
+        timeout_seconds=_get_int_env("GITHUB_TIMEOUT_SECONDS") or base_config.global_github.timeout_seconds,
         max_retries=base_config.global_github.max_retries,
         use_ssh=base_config.global_github.use_ssh,
     )
 
+    # Optional default org override
+    default_org_override = os.getenv("DEVHUB_ORGANIZATION") or base_config.default_organization
+
+    # Optional output override
+    output_dir_override = os.getenv("BUNDLE_OUTPUT_DIR")
+    env_output = (
+        OutputConfig(
+            base_directory=output_dir_override,
+            include_timestamps=base_config.global_output.include_timestamps,
+            file_permissions=base_config.global_output.file_permissions,
+            directory_permissions=base_config.global_output.directory_permissions,
+        )
+        if output_dir_override
+        else base_config.global_output
+    )
+
     # Create updated configuration
     updated_config = DevHubConfig(
-        default_organization=base_config.default_organization,
+        default_organization=default_org_override,
         organizations=base_config.organizations,
         global_jira=env_jira,
         global_github=env_github,
-        global_output=base_config.global_output,
+        global_output=env_output,
         config_version=base_config.config_version,
     )
 

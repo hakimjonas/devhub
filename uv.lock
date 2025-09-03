@@ -394,7 +394,7 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.14.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "refurb", specifier = ">=2.1.0" },
-    { name = "ruff", specifier = ">=0.12.11" },
+    { name = "ruff", specifier = ">=0.7.3" },
     { name = "safety", specifier = ">=3.6.0" },
     { name = "semgrep", specifier = ">=1.79.0" },
     { name = "typos", specifier = ">=1.35.5" },
