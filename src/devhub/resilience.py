@@ -211,7 +211,7 @@ def with_retry[T](
 
             exception_result = _handle_exception_retry(e, attempt, policy, state)
             if exception_result is not None:
-                return exception_result
+                return exception_result  # type: ignore[return-value]
 
     return Failure(f"Retry failed after {state.attempt} attempts")
 
@@ -255,7 +255,7 @@ async def async_with_retry[T](
 
             exception_result = _handle_exception_retry(e, attempt, policy, state)
             if exception_result is not None:
-                return exception_result
+                return exception_result  # type: ignore[return-value]
 
     return Failure(f"Retry failed after {state.attempt} attempts")
 

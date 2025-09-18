@@ -643,6 +643,7 @@ def get_global_registry() -> PluginRegistry:
     """
     if _global_registry is None:
         globals()["_global_registry"] = PluginRegistry()
+    assert _global_registry is not None  # Help mypy understand this is not None
     return _global_registry
 
 

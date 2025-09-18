@@ -289,7 +289,7 @@ class TestPooledSession:
                 self.response = response
 
             async def __aenter__(self) -> AsyncMock:
-                return self.response
+                return self.response  # type: ignore[no-any-return]
 
             async def __aexit__(
                 self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
@@ -400,7 +400,7 @@ class TestPooledSession:
                 self.response = response
 
             async def __aenter__(self) -> AsyncMock:
-                return self.response
+                return self.response  # type: ignore[no-any-return]
 
             async def __aexit__(
                 self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
@@ -412,7 +412,7 @@ class TestPooledSession:
             def __init__(self) -> None:
                 self.call_count = 0
 
-            def __call__(self, method: str, url: str, **kwargs: object) -> MockAsyncContextManager:
+            def __call__(self, _method: str, _url: str, **_kwargs: object) -> MockAsyncContextManager:
                 self.call_count += 1
                 return MockAsyncContextManager(mock_response)
 
@@ -458,7 +458,7 @@ class TestPooledSession:
                 self.response = response
 
             async def __aenter__(self) -> AsyncMock:
-                return self.response
+                return self.response  # type: ignore[no-any-return]
 
             async def __aexit__(
                 self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
@@ -517,7 +517,7 @@ class TestPooledSession:
                 self.response = response
 
             async def __aenter__(self) -> AsyncMock:
-                return self.response
+                return self.response  # type: ignore[no-any-return]
 
             async def __aexit__(
                 self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object

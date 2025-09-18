@@ -554,6 +554,7 @@ async def get_global_pool() -> HTTPPool:
     """
     if _global_pool is None:
         globals()["_global_pool"] = HTTPPool()
+    assert _global_pool is not None  # Help mypy understand this is not None
     return _global_pool
 
 

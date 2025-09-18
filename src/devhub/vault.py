@@ -487,20 +487,16 @@ class SecureVault:
         Returns:
             Success with decrypted credential data, Failure with error message
         """
-        if self.is_locked() or not self._cipher:
-            return Failure("Vault is locked" if self.is_locked() else "Vault not properly initialized")
+        # Validate vault state and get credential
+        vault_check = self._check_vault_state()
+        if isinstance(vault_check, Failure):
+            return vault_check
 
-        # Early validation with combined checks
-        encrypted_credential = self._credentials.get(name)
-        if not encrypted_credential:
-            await self._audit_log(
-                "credential_not_found", credential_name=name, success=False, error_message="Credential not found"
-            )
-            return Failure(f"Credential '{name}' not found")
+        credential_check = await self._get_and_validate_credential(name)
+        if isinstance(credential_check, Failure):
+            return credential_check
 
-        validation_result = await self._validate_credential_access(name, encrypted_credential)
-        if isinstance(validation_result, Failure):
-            return validation_result
+        encrypted_credential = credential_check.unwrap()
 
         try:
             # Decrypt and process credential
@@ -517,7 +513,6 @@ class SecureVault:
                 checksum=encrypted_credential.checksum,
             )
             self._credentials[name] = updated_credential
-
             self._last_activity = time.time()
 
         except (OSError, ValueError, RuntimeError) as e:
@@ -526,6 +521,37 @@ class SecureVault:
         else:
             await self._audit_log("credential_accessed", credential_name=name, success=True)
             return Success(credential_text)
+
+    def _check_vault_state(self) -> Result[None, str]:
+        """Check if vault is properly initialized and unlocked."""
+        if self.is_locked():
+            return Failure("Vault is locked")
+        if not self._cipher:
+            return Failure("Vault not properly initialized")
+        return Success(None)
+
+    async def _get_and_validate_credential(self, name: str) -> Result[EncryptedCredential, str]:
+        """Get credential and validate access."""
+        encrypted_credential = self._credentials.get(name)
+        if not encrypted_credential:
+            await self._audit_log(
+                "credential_not_found", credential_name=name, success=False, error_message="Credential not found"
+            )
+            return Failure(f"Credential '{name}' not found")
+
+        validation_result = await self._validate_credential_access(name, encrypted_credential)
+        if isinstance(validation_result, Failure):
+            return validation_result
+
+        return Success(encrypted_credential)
+
+    def _validate_delete_preconditions(self, name: str) -> str | None:
+        """Validate preconditions for credential deletion."""
+        if self.is_locked():
+            return "Vault is locked"
+        if name not in self._credentials:
+            return f"Credential '{name}' not found"
+        return None
 
     async def delete_credential(self, name: str) -> Result[None, str]:
         """Delete credential from vault.
@@ -536,15 +562,13 @@ class SecureVault:
         Returns:
             Success if deleted, Failure with error message
         """
-        if self.is_locked():
-            return Failure("Vault is locked")
+        # Validate preconditions
+        error_msg = self._validate_delete_preconditions(name)
+        if error_msg:
+            return Failure(error_msg)
 
         try:
-            if name not in self._credentials:
-                return Failure(f"Credential '{name}' not found")
-
             del self._credentials[name]
-
             # Persist changes
             save_result = await self._save_credentials()
             if isinstance(save_result, Failure):

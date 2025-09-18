@@ -31,6 +31,7 @@ from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 from threading import RLock
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import ParamSpec
 from typing import Protocol
@@ -60,8 +61,13 @@ try:
 except ImportError:
     PROMETHEUS_AVAILABLE = False
 
+if TYPE_CHECKING:
+    PrometheusMetricType = Any
+else:
+    PrometheusMetricType = Any
 
-# Define protocol for Prometheus metrics
+
+# Define protocol for Prometheus metrics (minimal common interface)
 class PrometheusMetric(Protocol):
     """Protocol for Prometheus metric types."""
 
@@ -666,7 +672,7 @@ class MetricsCollector:
 
         try:
             labels = list(metric_config.labels.keys())
-            prometheus_metric: PrometheusMetric
+            prometheus_metric: Any
 
             if metric_config.metric_type == MetricType.COUNTER:
                 prometheus_metric = PrometheusCounter(
@@ -706,7 +712,7 @@ class MetricsCollector:
             self._logger.warning("Failed to create Prometheus metric %s: %s", metric_config.name, e)
 
     def _apply_metric_update(
-        self, metric: PrometheusMetric, metric_type: MetricType, value: float, labels: dict[str, str]
+        self, metric: PrometheusMetricType, metric_type: MetricType, value: float, labels: dict[str, str]
     ) -> None:
         """Apply update to prometheus metric based on type."""
         labeled_metric = metric.labels(**labels) if labels else metric
@@ -847,6 +853,7 @@ def get_global_collector(config: ObservabilityConfig | None = None) -> MetricsCo
     """
     if _global_collector is None:
         globals()["_global_collector"] = MetricsCollector(config)
+    assert _global_collector is not None  # Help mypy understand this is not None
     return _global_collector
 
 

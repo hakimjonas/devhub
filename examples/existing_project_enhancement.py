@@ -75,30 +75,23 @@ async def setup_existing_project_enhancement() -> None:
         pass
 
 
-async def generate_enhanced_context(project_path: Path) -> str:
-    """Generate enhanced context for Claude."""
-    context_parts = [
-        "# Enhanced Project Context for Claude Code",
-        "",
-        "## 🏗️ Project Overview",
-    ]
-
-    # Analyze project structure
+def _analyze_project_structure(project_path: Path) -> list[str]:
+    """Analyze project file structure."""
     python_files = list(project_path.glob("**/*.py"))
     js_files = list(project_path.glob("**/*.js")) + list(project_path.glob("**/*.ts"))
     test_files = list(project_path.glob("**/test*.py")) + list(project_path.glob("**/*test.py"))
 
-    context_parts.extend(
-        [
-            f"- **Project Directory**: {project_path.name}",
-            f"- **Python Files**: {len(python_files)}",
-            f"- **JavaScript/TypeScript Files**: {len(js_files)}",
-            f"- **Test Files**: {len(test_files)}",
-            "",
-        ]
-    )
+    return [
+        f"- **Project Directory**: {project_path.name}",
+        f"- **Python Files**: {len(python_files)}",
+        f"- **JavaScript/TypeScript Files**: {len(js_files)}",
+        f"- **Test Files**: {len(test_files)}",
+        "",
+    ]
 
-    # Try to detect current branch
+
+def _detect_git_branch(project_path: Path) -> list[str]:
+    """Detect current Git branch."""
     try:
         git_head = project_path / ".git" / "HEAD"
         if git_head.exists():
@@ -106,21 +99,18 @@ async def generate_enhanced_context(project_path: Path) -> str:
                 head_content = f.read().strip()
                 if head_content.startswith("ref: refs/heads/"):
                     current_branch = head_content.split("/")[-1]
-                    context_parts.extend(
-                        [
-                            f"- **Current Branch**: {current_branch}",
-                            "",
-                        ]
-                    )
+                    return [
+                        f"- **Current Branch**: {current_branch}",
+                        "",
+                    ]
     except (OSError, UnicodeDecodeError):
         pass  # Git operations are optional
+    return []
 
-    # Analyze dependencies
-    context_parts.extend(
-        [
-            "## 📦 Dependencies & Tech Stack",
-        ]
-    )
+
+def _analyze_dependencies(project_path: Path) -> list[str]:
+    """Analyze project dependencies."""
+    parts = ["## 📦 Dependencies & Tech Stack"]
 
     # Python dependencies
     req_file = project_path / "requirements.txt"
@@ -128,7 +118,7 @@ async def generate_enhanced_context(project_path: Path) -> str:
         try:
             with req_file.open() as f:
                 deps = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-                context_parts.extend(
+                parts.extend(
                     [
                         "**Python Dependencies:**",
                         *[f"- {dep}" for dep in deps[:10]],  # First 10
@@ -145,7 +135,7 @@ async def generate_enhanced_context(project_path: Path) -> str:
             with package_json.open() as f:
                 data = json.load(f)
                 deps = list(data.get("dependencies", {}).keys())
-                context_parts.extend(
+                parts.extend(
                     [
                         "**Node.js Dependencies:**",
                         *[f"- {dep}" for dep in deps[:10]],  # First 10
@@ -155,76 +145,95 @@ async def generate_enhanced_context(project_path: Path) -> str:
         except (OSError, ValueError):
             pass
 
-    # Development workflow context
-    context_parts.extend(
-        [
-            "## 🔄 Development Workflow",
-            "",
-            "**Integration Points:**",
-            "- GitHub: Pull requests and code reviews",
-            "- Jira: Issue tracking and project management",
-            "- DevHub: Enhanced context and automation",
-            "",
-            "**Enhanced Capabilities with DevHub:**",
-            "- Automatic PR-Jira correlation",
-            "- Comprehensive code review context",
-            "- Smart debugging assistance",
-            "- Architecture-aware suggestions",
-            "",
-        ]
-    )
+    return parts
 
-    # Recent activity simulation
-    context_parts.extend(
-        [
-            "## 📈 Recent Activity (Simulated)",
-            "",
-            "**Recent Focus Areas:**",
-            "- Code review automation",
-            "- Integration improvements",
-            "- Test coverage enhancement",
-            "",
-            "**Current Development Phase:**",
-            "Ready for DevHub integration to supercharge Claude Code interactions!",
-            "",
-        ]
-    )
 
-    # Claude-specific guidance
-    context_parts.extend(
-        [
-            "## 🤖 Claude Code Integration",
-            "",
-            "**With this enhanced context, Claude can now:**",
-            "",
-            "1. **Understand Your Project Deeply**",
-            "   - Complete tech stack and dependencies",
-            "   - Current development focus and branch",
-            "   - Integration with GitHub and Jira",
-            "",
-            "2. **Provide Better Code Reviews**",
-            "   - Context-aware suggestions",
-            "   - Business logic alignment",
-            "   - Test coverage recommendations",
-            "",
-            "3. **Assist with Strategic Decisions**",
-            "   - Architecture improvements",
-            "   - Technical debt prioritization",
-            "   - Integration optimization",
-            "",
-            "**Next Level: After DevHub Setup**",
-            "- Real-time GitHub PR context",
-            "- Automatic Jira issue correlation",
-            "- Live CI/CD status integration",
-            "- Historical pattern analysis",
-            "",
-            "---",
-            "",
-            "🚀 **This is just the beginning!** Once DevHub is fully integrated,",
-            "Claude will have access to real-time project data, making every",
-            "interaction more intelligent and contextually relevant.",
-        ]
-    )
+def _generate_workflow_context() -> list[str]:
+    """Generate development workflow context."""
+    return [
+        "## 🔄 Development Workflow",
+        "",
+        "**Integration Points:**",
+        "- GitHub: Pull requests and code reviews",
+        "- Jira: Issue tracking and project management",
+        "- DevHub: Enhanced context and automation",
+        "",
+        "**Enhanced Capabilities with DevHub:**",
+        "- Automatic PR-Jira correlation",
+        "- Comprehensive code review context",
+        "- Smart debugging assistance",
+        "- Architecture-aware suggestions",
+        "",
+    ]
+
+
+def _generate_activity_context() -> list[str]:
+    """Generate recent activity context."""
+    return [
+        "## 📈 Recent Activity (Simulated)",
+        "",
+        "**Recent Focus Areas:**",
+        "- Code review automation",
+        "- Integration improvements",
+        "- Test coverage enhancement",
+        "",
+        "**Current Development Phase:**",
+        "Ready for DevHub integration to supercharge Claude Code interactions!",
+        "",
+    ]
+
+
+def _generate_claude_guidance() -> list[str]:
+    """Generate Claude-specific guidance."""
+    return [
+        "## 🤖 Claude Code Integration",
+        "",
+        "**With this enhanced context, Claude can now:**",
+        "",
+        "1. **Understand Your Project Deeply**",
+        "   - Complete tech stack and dependencies",
+        "   - Current development focus and branch",
+        "   - Integration with GitHub and Jira",
+        "",
+        "2. **Provide Better Code Reviews**",
+        "   - Context-aware suggestions",
+        "   - Business logic alignment",
+        "   - Test coverage recommendations",
+        "",
+        "3. **Assist with Strategic Decisions**",
+        "   - Architecture improvements",
+        "   - Technical debt prioritization",
+        "   - Integration optimization",
+        "",
+        "**Next Level: After DevHub Setup**",
+        "- Real-time GitHub PR context",
+        "- Automatic Jira issue correlation",
+        "- Live CI/CD status integration",
+        "- Historical pattern analysis",
+        "",
+        "---",
+        "",
+        "🚀 **This is just the beginning!** Once DevHub is fully integrated,",
+        "Claude will have access to real-time project data, making every",
+        "interaction more intelligent and contextually relevant.",
+    ]
+
+
+async def generate_enhanced_context(project_path: Path) -> str:
+    """Generate enhanced context for Claude."""
+    context_parts = [
+        "# Enhanced Project Context for Claude Code",
+        "",
+        "## 🏗️ Project Overview",
+    ]
+
+    # Combine all analysis sections
+    context_parts.extend(_analyze_project_structure(project_path))
+    context_parts.extend(_detect_git_branch(project_path))
+    context_parts.extend(_analyze_dependencies(project_path))
+    context_parts.extend(_generate_workflow_context())
+    context_parts.extend(_generate_activity_context())
+    context_parts.extend(_generate_claude_guidance())
 
     return "\n".join(context_parts)
 

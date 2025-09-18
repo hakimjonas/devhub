@@ -53,7 +53,7 @@ try:
 
     PSUTIL_AVAILABLE = True
 except ImportError:
-    psutil = None
+    psutil = None  # type: ignore[assignment]
     PSUTIL_AVAILABLE = False
 
 PYSNOOPER_AVAILABLE = importlib.util.find_spec("pysnooper") is not None
@@ -241,13 +241,14 @@ class PerformanceTestExecutor:
 
         try:
             result = func(*args, **kwargs)
-            execution_data = self._create_execution_data(start_time, start_memory)
-            self._handle_successful_execution(test_name, execution_data, result)
-            return result
         except Exception as e:
             execution_time = time.time() - start_time
             self._handle_failed_execution(test_name, execution_time, e)
             raise
+        else:
+            execution_data = self._create_execution_data(start_time, start_memory)
+            self._handle_successful_execution(test_name, execution_data)
+            return result
 
     def _create_execution_data(self, start_time: float, start_memory: float) -> dict[str, float]:
         """Create execution data dictionary."""
@@ -258,7 +259,7 @@ class PerformanceTestExecutor:
             "memory_usage": max(0, end_memory - start_memory),
         }
 
-    def _handle_successful_execution(self, test_name: str, execution_data: dict[str, float], result: T) -> None:
+    def _handle_successful_execution(self, test_name: str, execution_data: dict[str, float]) -> None:
         """Handle successful execution with FP pipeline."""
         metrics = self._create_performance_metrics(execution_data, success=True)
         threshold_violations = self._check_thresholds(metrics)
@@ -369,11 +370,12 @@ class AdvancedTestRunner:
                 if strategy not in self._suite.enabled_strategies:
                     return Failure(f"Strategy {strategy.value} not enabled in test suite")
 
-                # Add metadata to function (using setattr for type safety)
+                # Add metadata to function (legitimate dynamic attributes)
                 if not hasattr(test_function, "_test_metadata"):
-                    test_function._test_metadata = {}
-                test_function._test_metadata.update(metadata)
-                test_function._test_strategy = strategy
+                    test_function._test_metadata = {}  # noqa: SLF001
+                metadata_dict = test_function._test_metadata  # noqa: SLF001
+                metadata_dict.update(metadata)
+                test_function._test_strategy = strategy  # noqa: SLF001
 
                 self._test_functions[strategy].append(test_function)
 
@@ -891,6 +893,7 @@ def get_global_runner(suite: TestSuite | None = None) -> AdvancedTestRunner:
     if _global_runner is None:
         default_suite = suite or TestSuite("default_suite")
         globals()["_global_runner"] = AdvancedTestRunner(default_suite)
+    assert _global_runner is not None  # Help mypy understand this is not None
     return _global_runner
 
 

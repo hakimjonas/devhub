@@ -82,11 +82,13 @@ def check_uv() -> bool:
 
             print_success("uv installed successfully ✓")
 
-            # Add to PATH for current session
+            # Note: uv should be available in PATH after shell restart
+            # We don't modify global PATH to avoid environment pollution
             home = Path.home()
             uv_path = home / ".cargo" / "bin"
             if uv_path.exists():
-                os.environ["PATH"] = f"{uv_path}:{os.environ['PATH']}"
+                print_info(f"uv installed to: {uv_path}")
+                print_info("You may need to restart your terminal or run: source ~/.bashrc")
 
         except subprocess.CalledProcessError as e:
             print_error(f"Failed to install uv: {e}")
@@ -127,23 +129,36 @@ def check_devhub_directory() -> bool:
     return True
 
 
+def _get_uv_env() -> dict[str, str]:
+    """Get environment with uv PATH for subprocess operations (no global pollution)."""
+    env = os.environ.copy()
+    home = Path.home()
+    uv_path = home / ".cargo" / "bin"
+    if uv_path.exists():
+        env["PATH"] = f"{uv_path}:{env['PATH']}"
+    return env
+
+
 def setup_with_uv() -> bool | None:
     """Set up DevHub using uv."""
     print_info("Setting up Python environment with uv...")
 
+    # Get clean environment with uv PATH (no global pollution)
+    uv_env = _get_uv_env()
+
     try:
         # Create virtual environment with uv
-        subprocess.run(["uv", "venv"], check=True)
+        subprocess.run(["uv", "venv"], check=True, env=uv_env)
         print_success("Virtual environment created with uv ✓")
 
         # Sync dependencies
         print_info("Installing dependencies (this is FAST with uv!)...")
-        subprocess.run(["uv", "sync", "--dev"], check=True)
+        subprocess.run(["uv", "sync", "--dev"], check=True, env=uv_env)
         print_success("All dependencies installed ✓")
 
         # Install DevHub in editable mode
         print_info("Installing DevHub in development mode...")
-        subprocess.run(["uv", "pip", "install", "-e", "."], check=True)
+        subprocess.run(["uv", "pip", "install", "-e", "."], check=True, env=uv_env)
         print_success("DevHub installed successfully ✓")
 
     except subprocess.CalledProcessError as e:
