@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from enum import Enum
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Any
 from typing import ClassVar
 
@@ -255,7 +255,7 @@ class SecureVault:
         self._is_locked = True
         self._failed_attempts = 0
         self._last_activity = time.time()
-        self._lock = Lock()
+        self._lock = RLock()
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
         # Ensure vault directory exists
@@ -337,44 +337,63 @@ class SecureVault:
             Success if unlocked, Failure with error message
         """
         with self._lock:
-            if self._failed_attempts >= self._config.max_failed_attempts:
-                # Fire-and-forget audit logging
-                with contextlib.suppress(RuntimeError):
-                    self._create_background_task(
-                        self._audit_log("vault_unlock_blocked", success=False, error_message="Too many failed attempts")
-                    )
-                return Failure("Vault locked due to too many failed attempts")
+            # Check for too many failed attempts
+            lockout_check = self._check_failed_attempts()
+            if isinstance(lockout_check, Failure):
+                return lockout_check
 
+            # Attempt unlock with error handling
             try:
-                # Verify master password
-                if not self._verify_master_password(master_password):
-                    self._failed_attempts += 1
-                    # Fire-and-forget audit logging
-                    with contextlib.suppress(RuntimeError):
-                        self._create_background_task(
-                            self._audit_log(
-                                "vault_unlock_failed", success=False, error_message="Invalid master password"
-                            )
-                        )
-                    return Failure("Invalid master password")
-
-                self._is_locked = False
-                self._failed_attempts = 0
-                self._last_activity = time.time()
-                # Fire-and-forget audit logging
-                with contextlib.suppress(RuntimeError):
-                    self._create_background_task(self._audit_log("vault_unlocked", success=True))
-
-                return Success(None)
-
+                return self._perform_unlock(master_password)
             except (OSError, ValueError, RuntimeError) as e:
-                self._failed_attempts += 1
-                # Fire-and-forget audit logging
-                with contextlib.suppress(RuntimeError):
-                    self._create_background_task(
-                        self._audit_log("vault_unlock_error", success=False, error_message=str(e))
-                    )
-                return Failure(f"Unlock failed: {e}")
+                return self._handle_unlock_error(str(e))
+
+    def _check_failed_attempts(self) -> Result[None, str]:
+        """Check if vault is locked due to too many failed attempts."""
+        if self._failed_attempts >= self._config.max_failed_attempts:
+            with contextlib.suppress(RuntimeError):
+                self._create_background_task(
+                    self._audit_log("vault_unlock_blocked", success=False, error_message="Too many failed attempts")
+                )
+            return Failure("Vault locked due to too many failed attempts")
+        return Success(None)
+
+    def _perform_unlock(self, master_password: str) -> Result[None, str]:
+        """Perform the actual unlock process."""
+        # Verify master password
+        if not self._verify_master_password(master_password):
+            self._failed_attempts += 1
+            with contextlib.suppress(RuntimeError):
+                self._create_background_task(
+                    self._audit_log("vault_unlock_failed", success=False, error_message="Invalid master password")
+                )
+            return Failure("Invalid master password")
+
+        # Recreate master key and cipher
+        master_key_result = self._get_master_key_sync(master_password)
+        if isinstance(master_key_result, Failure):
+            self._failed_attempts += 1
+            return Failure(f"Failed to retrieve master key: {master_key_result.failure()}")
+
+        # Successfully unlock
+        self._master_key = master_key_result.unwrap()
+        self._cipher = Fernet(base64.urlsafe_b64encode(self._master_key))
+        self._is_locked = False
+        self._failed_attempts = 0
+        self._last_activity = time.time()
+        with contextlib.suppress(RuntimeError):
+            self._create_background_task(self._audit_log("vault_unlocked", success=True))
+
+        return Success(None)
+
+    def _handle_unlock_error(self, error_message: str) -> Result[None, str]:
+        """Handle unlock error with logging."""
+        self._failed_attempts += 1
+        with contextlib.suppress(RuntimeError):
+            self._create_background_task(
+                self._audit_log("vault_unlock_error", success=False, error_message=error_message)
+            )
+        return Failure(f"Unlock failed: {error_message}")
 
     def lock(self) -> None:
         """Lock the vault immediately."""
@@ -500,8 +519,9 @@ class SecureVault:
 
         try:
             # Decrypt and process credential
+            assert self._cipher is not None  # Validated by _check_vault_state()
             decrypted_data = self._cipher.decrypt(encrypted_credential.encrypted_data)
-            credential_text = decrypted_data.decode("utf-8")
+            credential_text = decrypted_data.decode("utf-8", errors="ignore")
 
             # Update access metadata
             updated_metadata = encrypted_credential.metadata.with_access()
@@ -601,8 +621,14 @@ class SecureVault:
                 if stored_key:
                     return Success(base64.b64decode(stored_key.encode()))
 
-            # Generate new master key using key derivation
-            salt = secrets.token_bytes(16)
+            # Get or generate salt for key derivation
+            salt_file = self._config.vault_dir / ".master_salt"
+            if salt_file.exists():
+                salt = salt_file.read_bytes()
+            else:
+                salt = secrets.token_bytes(16)
+                salt_file.write_bytes(salt)
+                salt_file.chmod(0o600)  # Owner read/write only
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
@@ -620,6 +646,32 @@ class SecureVault:
 
         except (OSError, ValueError, RuntimeError) as e:
             return Failure(f"Master key generation failed: {e}")
+
+    def _get_master_key_sync(self, master_password: str) -> Result[bytes, str]:
+        """Synchronously get master encryption key for unlocking."""
+        try:
+            if self._config.backend == VaultBackend.OS_KEYRING and KEYRING_AVAILABLE:
+                # Try to get existing key from OS keyring
+                stored_key = keyring.get_password("devhub", self._config.master_key_name)
+                if stored_key:
+                    return Success(base64.b64decode(stored_key.encode()))
+
+            # If no stored key, read the salt from file and regenerate key
+            salt_file = self._config.vault_dir / ".master_salt"
+            if not salt_file.exists():
+                return Failure("Vault not initialized - no master salt found")
+            salt = salt_file.read_bytes()
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=self._config.encryption_rounds,
+            )
+            master_key = kdf.derive(master_password.encode())
+            return Success(master_key)
+
+        except (OSError, ValueError, RuntimeError) as e:
+            return Failure(f"Master key retrieval failed: {e}")
 
     def _verify_master_password(self, password: str) -> bool:
         """Verify master password against stored hash."""
@@ -644,7 +696,10 @@ class SecureVault:
                         data = json.loads(content)
 
                     for name, cred_data in data.items():
-                        metadata = CredentialMetadata(**cred_data["metadata"])
+                        # Convert credential_type string back to enum
+                        metadata_dict = cred_data["metadata"].copy()
+                        metadata_dict["credential_type"] = CredentialType(metadata_dict["credential_type"])
+                        metadata = CredentialMetadata(**metadata_dict)
                         encrypted_credential = EncryptedCredential(
                             metadata=metadata,
                             encrypted_data=base64.b64decode(cred_data["encrypted_data"]),
@@ -740,7 +795,7 @@ class SecureVault:
 
     def _create_background_task(self, coro: Awaitable[Any]) -> None:
         """Create a fire-and-forget background task with proper cleanup."""
-        task = asyncio.create_task(coro)
+        task: asyncio.Task[Any] = asyncio.create_task(coro)  # type: ignore[arg-type]
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
@@ -760,6 +815,7 @@ def get_global_vault(config: VaultConfig | None = None) -> SecureVault:
     """
     if _global_vault is None:
         globals()["_global_vault"] = SecureVault(config)
+    assert _global_vault is not None  # Help mypy understand this is not None
     return _global_vault
 
 

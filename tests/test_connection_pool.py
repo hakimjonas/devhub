@@ -412,7 +412,7 @@ class TestPooledSession:
             def __init__(self) -> None:
                 self.call_count = 0
 
-            def __call__(self, _method: str, _url: str, **_kwargs: object) -> MockAsyncContextManager:
+            def __call__(self, *, method: str, url: str, **_kwargs: object) -> MockAsyncContextManager:  # noqa: ARG002
                 self.call_count += 1
                 return MockAsyncContextManager(mock_response)
 

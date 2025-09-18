@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from enum import Enum
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Any
 from typing import ParamSpec
 from typing import TypeVar
@@ -350,7 +350,7 @@ class AdvancedTestRunner:
         self._performance_baselines: dict[str, PerformanceMetrics] = {}
         self._contract_tests: dict[str, ContractTest] = {}
         self._mutation_results: dict[str, MutationTestResult] = {}
-        self._lock = Lock()
+        self._lock = RLock()
 
     def register_test_function(
         self, test_function: Callable[..., Any], strategy: TestStrategy, **metadata: str | float | bool | None

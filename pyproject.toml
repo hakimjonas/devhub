@@ -105,7 +105,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
     "S101", "PLR2004", "ANN001", "ANN201", "SLF001", "ARG001", "S105", "S106", "E402", "PTH108", "PLC0415", "PLR0915",
-    "D101", "D102", "D103", # Don’t require docstrings in tests
+    "D101", "D102", "D103", # Don't require docstrings in tests
     "S108", # Allow explicit /tmp paths in tests
     "C408", # Allow tuple() in tests
 ]
@@ -114,6 +114,8 @@ ignore = [
 "src/devhub/config.py" = ["PLR2004", "PLR0911", "BLE001"]
 "src/devhub/vault.py" = ["S105"]  # False positives for enum values
 "src/devhub/cli.py" = ["C901", "PLR0912", "PLR0915"]  # CLI wizard complexity acceptable
+"src/devhub/testing_framework.py" = ["B009", "B010"]  # Allow getattr/setattr for dynamic test attributes
+"src/devhub/claude_integration.py" = ["ANN401"]  # Allow Any in **kwargs for flexible API
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -179,6 +181,16 @@ disallow_any_decorated = false
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = "devhub.testing_framework"
+# Allow dynamic attributes for testing framework
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "devhub.claude_integration"
+# Allow Any in kwargs for flexible API
+disallow_any_explicit = false
 
 [tool.pyright]
 pythonVersion = "3.13"

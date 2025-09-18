@@ -23,7 +23,6 @@ from dataclasses import replace
 from threading import Lock
 from typing import Any
 from typing import TypeVar
-from typing import cast
 
 import aiohttp
 from returns.result import Failure
@@ -187,7 +186,7 @@ class HTTPResponse:
     headers: dict[str, str]
     content: bytes
     text: str
-    json_data: dict[str, Any] | None = None
+    json_data: Any = None
     url: str = ""
     response_time: float = 0.0
     from_cache: bool = False
@@ -282,7 +281,9 @@ class PooledSession:
                 },
             )
 
-    def _handle_request_error(self, exception: Exception) -> Failure[str]:
+    def _handle_request_error(
+        self, exception: Exception | aiohttp.ClientError | OSError | ValueError | asyncio.CancelledError
+    ) -> Failure[str]:
         """Handle request errors with consistent stats tracking."""
         with self._stats_lock:
             self._stats = self._stats.with_request_failure()
@@ -295,7 +296,7 @@ class PooledSession:
             return Failure(f"Network error: {exception}")
         return Failure(f"Unexpected error: {exception}")
 
-    def _check_cache(self, request: HTTPRequest) -> Result[HTTPResponse, None] | None:
+    def _check_cache(self, request: HTTPRequest) -> Result[HTTPResponse, str] | None:
         """Check cache for existing response. Returns None if no cache hit."""
         if not request.cache_key:
             return None
@@ -442,12 +443,14 @@ class PooledSession:
         with self._stats_lock:
             return self._stats
 
-    def _parse_json_response(self, headers: dict[str, str], text: str) -> dict[str, Any] | None:
+    def _parse_json_response(
+        self, headers: dict[str, str], text: str
+    ) -> dict[str, Any] | list[Any] | str | int | float | bool | None:
         """Parse JSON response if content type indicates JSON."""
         content_type = headers.get("content-type", "")
         if "application/json" in content_type:
             try:
-                return cast("dict[str, Any]", json.loads(text))
+                return json.loads(text)  # type: ignore[no-any-return]
             except json.JSONDecodeError:
                 pass  # Not valid JSON, leave as None
         return None

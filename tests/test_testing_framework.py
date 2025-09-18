@@ -5,7 +5,9 @@ import time
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck
 from hypothesis import given
+from hypothesis import settings
 from hypothesis import strategies as st
 from returns.result import Failure
 from returns.result import Success
@@ -401,6 +403,7 @@ def compare_values(a, b):
         test_name=st.text(min_size=1, max_size=50),
         execution_time=st.floats(min_value=0.001, max_value=10.0, allow_nan=False),
     )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_test_execution_property(
         self,
         test_runner: AdvancedTestRunner,
@@ -479,7 +482,10 @@ class TestTestingFrameworkIntegration:
         def unit_test() -> None:
             assert 2 + 2 == 4
 
+        # Register all test functions
         runner.register_test_function(unit_test, TestStrategy.UNIT)
+        runner.register_test_function(performance_test, TestStrategy.PERFORMANCE)
+        runner.register_test_function(contract_test, TestStrategy.CONTRACT)
 
         # Run all tests
         result = runner.run_all_tests()

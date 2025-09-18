@@ -5,6 +5,7 @@ and error paths that were missing from the original test suite.
 """
 
 import json
+import string
 import time
 from pathlib import Path
 from unittest.mock import Mock
@@ -61,15 +62,15 @@ class TestCacheEdgeCases:
             CacheConfig(
                 max_size=5,
                 default_ttl_seconds=1,
-                check_expired_interval=1,
+                check_expired_interval=1,  # Use 1 second interval
             )
         )
 
-        # Add entries that will expire
+        # Add entries that will expire quickly
         for i in range(3):
             cache.put(f"key{i}", f"value{i}", ttl_seconds=1)
 
-        time.sleep(0.1)
+        time.sleep(1.1)  # Wait for entries to expire
 
         # Force cleanup by accessing cache
         cache.get("key0")
@@ -393,12 +394,13 @@ class TestMCPServerEdgeCases:
         """Test get_jira_issue without credentials."""
         server = DevHubMCPServer()
 
-        with patch("devhub.mcp_server.get_jira_credentials_from_config") as mock:
-            mock.return_value = Failure("No credentials")
+        with patch("devhub.mcp_server.get_jira_credentials_from_config") as mock_config:
+            mock_config.return_value = None
+            with patch("devhub.mcp_server.get_jira_credentials") as mock_env:
+                mock_env.return_value = None
 
-            result = await server._get_jira_issue("TEST-1")
-            assert isinstance(result, dict)
-            assert "error" in result
+                with pytest.raises(RuntimeError, match="Jira credentials not configured"):
+                    await server._get_jira_issue("TEST-1")
 
     @pytest.mark.asyncio
     async def test_mcp_server_initialization(self) -> None:
@@ -442,8 +444,8 @@ class TestPropertyBased:
             assert delay == expected
 
     @given(
-        st.text(min_size=1, max_size=20),
-        st.text(min_size=1, max_size=20),
+        st.text(alphabet=string.ascii_uppercase, min_size=2, max_size=10),
+        st.text(alphabet=string.digits, min_size=1, max_size=5),
     )
     def test_jira_key_extraction_property(
         self,
@@ -451,9 +453,8 @@ class TestPropertyBased:
         suffix: str,
     ) -> None:
         """Test JIRA key extraction with various inputs."""
-        # Only test with valid prefixes (uppercase letters)
-        if prefix.isupper() and suffix.isdigit():
-            branch = f"feature/{prefix}-{suffix}"
-            result = extract_jira_key_from_branch(branch)
-            if len(prefix) >= 2 and len(prefix) <= 10:
-                assert result == f"{prefix}-{suffix}"
+        # prefix is already guaranteed to be 2-10 uppercase letters
+        # suffix is already guaranteed to be 1-5 digits
+        branch = f"feature/{prefix}-{suffix}"
+        result = extract_jira_key_from_branch(branch)
+        assert result == f"{prefix}-{suffix}"

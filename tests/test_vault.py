@@ -1,6 +1,5 @@
 """Comprehensive tests for the secure credential vault system."""
 
-import asyncio
 import json
 import tempfile
 import time
@@ -8,7 +7,9 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck
 from hypothesis import given
+from hypothesis import settings
 from hypothesis import strategies as st
 from returns.result import Failure
 from returns.result import Success
@@ -216,29 +217,47 @@ class TestVaultAuditEntry:
         assert entry.metadata["attempt"] == 1
 
 
+# Module-level fixtures for all test classes
+@pytest.fixture
+def temp_vault_dir() -> Generator[Path]:
+    """Create temporary vault directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
+
+
+@pytest.fixture
+def vault_config(temp_vault_dir: Path) -> VaultConfig:
+    """Create test vault configuration."""
+    return VaultConfig(
+        backend=VaultBackend.FILE_SYSTEM,
+        vault_dir=temp_vault_dir,
+        audit_file=temp_vault_dir / "audit.log",
+        audit_enabled=False,  # Disable audit to prevent background task issues
+        auto_lock_timeout=1.0,  # 1 second for testing
+    )
+
+
+@pytest.fixture
+def vault(vault_config: VaultConfig) -> SecureVault:
+    """Create test vault instance."""
+    return SecureVault(vault_config)
+
+
+@pytest.fixture
+def vault_with_audit(temp_vault_dir: Path) -> SecureVault:
+    """Create test vault instance with audit enabled."""
+    config = VaultConfig(
+        backend=VaultBackend.FILE_SYSTEM,
+        vault_dir=temp_vault_dir,
+        audit_file=temp_vault_dir / "audit.log",
+        audit_enabled=True,  # Enable audit for specific tests
+        auto_lock_timeout=1.0,  # 1 second for testing
+    )
+    return SecureVault(config)
+
+
 class TestSecureVault:
     """Test secure vault functionality."""
-
-    @pytest.fixture
-    def temp_vault_dir(self) -> Generator[Path]:
-        """Create temporary vault directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            yield Path(tmpdir)
-
-    @pytest.fixture
-    def vault_config(self, temp_vault_dir: Path) -> VaultConfig:
-        """Create test vault configuration."""
-        return VaultConfig(
-            backend=VaultBackend.FILE_SYSTEM,
-            vault_dir=temp_vault_dir,
-            audit_file=temp_vault_dir / "audit.log",
-            auto_lock_timeout=1.0,  # 1 second for testing
-        )
-
-    @pytest.fixture
-    def vault(self, vault_config: VaultConfig) -> SecureVault:
-        """Create test vault instance."""
-        return SecureVault(vault_config)
 
     @pytest.mark.asyncio
     async def test_vault_initialization(self, vault: SecureVault) -> None:
@@ -273,9 +292,16 @@ class TestSecureVault:
         await vault.initialize("test_password")
         assert not vault.is_locked()
 
-        # Wait for auto-lock timeout
-        await asyncio.sleep(1.1)
-        assert vault.is_locked()
+        # Mock time to advance past auto-lock timeout deterministically
+        from unittest.mock import patch
+
+        # Patch time in the vault module to control auto-lock timing
+        with patch("devhub.vault.time.time") as mock_time:
+            # Return a time that exceeds the auto-lock timeout
+            mock_time.return_value = vault._last_activity + vault._config.auto_lock_timeout + 0.1
+
+            # Trigger auto-lock check by calling is_locked()
+            assert vault.is_locked()
 
     @pytest.mark.asyncio
     async def test_failed_attempts_lockout(self, vault: SecureVault) -> None:
@@ -444,14 +470,14 @@ class TestSecureVault:
         assert result.unwrap() == "persistent_value"
 
     @pytest.mark.asyncio
-    async def test_audit_logging(self, vault: SecureVault, temp_vault_dir: Path) -> None:
+    async def test_audit_logging(self, vault_with_audit: SecureVault, temp_vault_dir: Path) -> None:
         """Test audit logging functionality."""
-        await vault.initialize("test_password")
+        await vault_with_audit.initialize("test_password")
 
         metadata = CredentialMetadata("audit_test", CredentialType.API_TOKEN)
-        await vault.store_credential(metadata, "audit_value")
-        await vault.get_credential("audit_test")
-        await vault.delete_credential("audit_test")
+        await vault_with_audit.store_credential(metadata, "audit_value")
+        await vault_with_audit.get_credential("audit_test")
+        await vault_with_audit.delete_credential("audit_test")
 
         # Check audit file
         audit_file = temp_vault_dir / "audit.log"
@@ -491,6 +517,7 @@ class TestSecureVault:
         credential_name=st.text(min_size=1, max_size=50),
         credential_value=st.text(min_size=1, max_size=1000),
     )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @pytest.mark.asyncio
     async def test_credential_roundtrip_property(
         self,

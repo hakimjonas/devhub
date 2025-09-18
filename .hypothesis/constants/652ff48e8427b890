@@ -1,0 +1,4 @@
+# file: /home/hakim/tools/devhub/src/devhub/connection_pool.py
+# hypothesis_version: 6.138.7
+
+[0.0, 10.0, 30.0, 60.0, 100, 200, 300, 400, 500, 600, 1000, 8192, 'Accept-Encoding', 'ConnectionStats', 'GET', 'POST', 'PooledSession', 'T', 'User-Agent', '_global_pool', 'application/json', 'content-type', 'default', 'dict[str, Any]', 'gzip, deflate', 'ignore', 'utf-8']

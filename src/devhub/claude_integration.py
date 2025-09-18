@@ -510,19 +510,22 @@ class ClaudeEnhancer:
 
         return Success(final_metrics)
 
-    async def get_enhanced_context(
-        self, task_type: ClaudeTaskType, **kwargs: ClaudeContextKwargs
-    ) -> Result[ClaudeContext, str]:
+    async def get_enhanced_context(self, task_type: ClaudeTaskType, **kwargs: Any) -> Result[ClaudeContext, str]:
         """Get enhanced context for Claude based on task type."""
         if task_type == ClaudeTaskType.CODE_REVIEW:
             pr_number = kwargs.get("pr_number")
+            pr_number_int = pr_number if isinstance(pr_number, int) else None
             mr_iid = kwargs.get("mr_iid")
+            mr_iid_int = mr_iid if isinstance(mr_iid, int) else None
             max_tokens = kwargs.get("max_tokens", 50000)
-            return await self._workflow.prepare_code_review_context(pr_number, mr_iid, max_tokens)
+            max_tokens_int = max_tokens if isinstance(max_tokens, int) else 50000
+            return await self._workflow.prepare_code_review_context(pr_number_int, mr_iid_int, max_tokens_int)
         if task_type == ClaudeTaskType.DEBUGGING:
             error_description = kwargs.get("error_description", "")
+            error_desc_str = error_description if isinstance(error_description, str) else ""
             relevant_files = kwargs.get("relevant_files")
-            return await self._workflow.prepare_debugging_context(error_description, relevant_files)
+            files_list = relevant_files if isinstance(relevant_files, list) else None
+            return await self._workflow.prepare_debugging_context(error_desc_str, files_list)
         if task_type == ClaudeTaskType.ARCHITECTURE:
             return await self._workflow.prepare_architecture_context()
         # Note: Mock implementation for demonstration
@@ -601,7 +604,7 @@ def get_claude_enhancer() -> ClaudeEnhancer:
 async def claude_code_review_context(pr_number: int | None = None) -> Result[str, str]:
     """Get Claude-optimized context for code review."""
     enhancer = get_claude_enhancer()
-    context_result = await enhancer.get_enhanced_context(ClaudeTaskType.CODE_REVIEW, pr_number=pr_number)
+    context_result = await enhancer.get_enhanced_context(ClaudeTaskType.CODE_REVIEW, pr_number=pr_number or 0)
 
     if isinstance(context_result, Success):
         context = context_result.unwrap()
@@ -612,7 +615,9 @@ async def claude_code_review_context(pr_number: int | None = None) -> Result[str
 async def claude_debugging_context(error_description: str) -> Result[str, str]:
     """Get Claude-optimized context for debugging."""
     enhancer = get_claude_enhancer()
-    context_result = await enhancer.get_enhanced_context(ClaudeTaskType.DEBUGGING, error_description=error_description)
+    context_result = await enhancer.get_enhanced_context(
+        ClaudeTaskType.DEBUGGING, error_description=error_description or "Debug issue"
+    )
 
     if isinstance(context_result, Success):
         context = context_result.unwrap()

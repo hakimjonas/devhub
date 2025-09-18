@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
+from typing import cast
 
 from returns.result import Failure
 from returns.result import Result
@@ -193,8 +194,8 @@ class GitLabClient:
         return Success(None)
 
     def _handle_api_response[T](
-        self, result: Result[HTTPResponse, str], transform_fn: Callable[[dict[str, Any]], T] | None = None
-    ) -> Result[T | dict[str, Any], str]:
+        self, result: Result[HTTPResponse, str], transform_fn: Callable[[dict[str, Any] | list[Any]], T] | None = None
+    ) -> Result[T, str]:
         """Handle API response with consistent error handling."""
         if isinstance(result, Failure):
             return result
@@ -204,7 +205,10 @@ class GitLabClient:
             return Failure(f"GitLab API error: {response.status_code}")
 
         data = response.json_data or {}
-        return Success(transform_fn(data) if transform_fn else data)
+        if transform_fn:
+            return Success(transform_fn(data))
+        # When no transform function provided, cast data to T
+        return Success(cast("T", data))
 
     async def initialize(self) -> Result[None, str]:
         """Initialize the GitLab client."""
@@ -241,6 +245,7 @@ class GitLabClient:
             return validation_result
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(f"{self.api_url}/user", headers={"Authorization": f"Bearer {self.token}"})
                 return self._handle_api_response(result)
@@ -255,13 +260,37 @@ class GitLabClient:
             return validation_result
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
                     f"{self.api_url}/projects/{project_id}",
                     headers={"Authorization": f"Bearer {self.token}"},
                     params={"statistics": "true"},
                 )
-                return self._handle_api_response(result, lambda data: GitLabRepository(**data))
+
+                def create_repo(data: dict[str, Any] | list[Any]) -> GitLabRepository:
+                    if isinstance(data, dict):
+                        return GitLabRepository(**data)
+                    # Return empty repository when no data available
+                    return GitLabRepository(
+                        id=0,
+                        name="",
+                        path="",
+                        full_name="",
+                        description=None,
+                        web_url="",
+                        ssh_url_to_repo="",
+                        http_url_to_repo="",
+                        default_branch="",
+                        visibility="",
+                        star_count=0,
+                        forks_count=0,
+                        created_at="",
+                        updated_at="",
+                        last_activity_at="",
+                    )
+
+                return self._handle_api_response(result, create_repo)
 
         except (OSError, ValueError, KeyError) as e:
             return Failure(f"Failed to get project: {e}")
@@ -275,6 +304,7 @@ class GitLabClient:
             return prereq_check
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
                     f"{self.api_url}/projects/{project_id}/merge_requests",
@@ -282,7 +312,12 @@ class GitLabClient:
                     params={"state": state, "per_page": str(per_page)},
                 )
 
-                return self._handle_api_response(result, lambda data: [GitLabMergeRequest(**mr) for mr in data])
+                def transform_mrs(data: dict[str, Any] | list[Any]) -> list[GitLabMergeRequest]:
+                    if isinstance(data, list):
+                        return [GitLabMergeRequest(**mr) for mr in data]
+                    return []
+
+                return self._handle_api_response(result, transform_mrs)
 
         except (OSError, ValueError, KeyError) as e:
             return Failure(f"Failed to list merge requests: {e}")
@@ -294,13 +329,33 @@ class GitLabClient:
             return prereq_check
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
                     f"{self.api_url}/projects/{project_id}/merge_requests/{merge_request_iid}",
                     headers={"Authorization": f"Bearer {self.token}"},
                 )
 
-                return self._handle_api_response(result, GitLabMergeRequest)
+                def create_mr(data: dict[str, Any] | list[Any]) -> GitLabMergeRequest:
+                    if isinstance(data, dict):
+                        return GitLabMergeRequest(**data)
+                    # Return empty merge request when no data available
+                    return GitLabMergeRequest(
+                        id=0,
+                        iid=0,
+                        title="",
+                        description="",
+                        state="",
+                        created_at="",
+                        updated_at="",
+                        merged_at=None,
+                        closed_at=None,
+                        target_branch="",
+                        source_branch="",
+                        web_url="",
+                    )
+
+                return self._handle_api_response(result, create_mr)
 
         except (OSError, ValueError, KeyError) as e:
             return Failure(f"Failed to get merge request: {e}")
@@ -314,6 +369,7 @@ class GitLabClient:
             return prereq_check
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
                     f"{self.api_url}/projects/{project_id}/merge_requests/{merge_request_iid}/changes",
@@ -334,6 +390,7 @@ class GitLabClient:
             return prereq_check
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
                     f"{self.api_url}/projects/{project_id}/issues",
@@ -341,7 +398,12 @@ class GitLabClient:
                     params={"state": state, "per_page": str(per_page)},
                 )
 
-                return self._handle_api_response(result, lambda data: [GitLabIssue(**issue) for issue in data])
+                def transform_issues(data: dict[str, Any] | list[Any]) -> list[GitLabIssue]:
+                    if isinstance(data, list):
+                        return [GitLabIssue(**issue) for issue in data]
+                    return []
+
+                return self._handle_api_response(result, transform_issues)
 
         except (OSError, ValueError, KeyError) as e:
             return Failure(f"Failed to list issues: {e}")
@@ -353,6 +415,7 @@ class GitLabClient:
             return prereq_check
 
         try:
+            assert self._http_pool is not None
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
                     f"{self.api_url}/projects/{project_id}/pipelines",
@@ -360,7 +423,12 @@ class GitLabClient:
                     params={"ref": ref, "per_page": "1"},
                 )
 
-                return self._handle_api_response(result, lambda data: GitLabPipeline(**data[0]) if data else None)
+                def transform_pipeline(data: dict[str, Any] | list[Any]) -> GitLabPipeline | None:
+                    if isinstance(data, list) and data:
+                        return GitLabPipeline(**data[0])
+                    return None
+
+                return self._handle_api_response(result, transform_pipeline)
 
         except (OSError, ValueError, KeyError) as e:
             return Failure(f"Failed to get pipeline status: {e}")
@@ -445,7 +513,7 @@ class GitLabPlugin(DataSourcePlugin, TransformPlugin):
     def _resolve_project_id(self, request: ContextRequest, context: dict[str, Any]) -> str | None:
         """Resolve GitLab project ID from request or context."""
         if hasattr(request, "gitlab_project_id") and request.gitlab_project_id:
-            return request.gitlab_project_id
+            return str(request.gitlab_project_id)
 
         git_remote = context.get("git_remote")
         return self._extract_project_id_from_remote(git_remote) if git_remote and "gitlab" in git_remote else None
@@ -455,6 +523,7 @@ class GitLabPlugin(DataSourcePlugin, TransformPlugin):
         gitlab_data = {}
 
         # Fetch project information first
+        assert self._client is not None
         project_result = await self._client.get_project(project_id)
         if isinstance(project_result, Success):
             gitlab_data["project"] = project_result.unwrap()

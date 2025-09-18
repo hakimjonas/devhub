@@ -278,7 +278,7 @@ class GitLabSDK:
 
             response = result.unwrap()
             return (
-                Success(response.json_data or [])
+                Success(response.json_data if isinstance(response.json_data, list) else [])
                 if response.is_success
                 else Failure(f"GitLab API error: {response.status_code}")
             )
@@ -332,16 +332,20 @@ class GitLabSDK:
 
             response = result.unwrap()
             return (
-                Success(response.json_data or [])
+                Success(response.json_data if isinstance(response.json_data, list) else [])
                 if response.is_success
                 else Failure(f"GitLab API error: {response.status_code}")
             )
 
     async def get_pipeline_status(self, project_id: str, ref: str = "main") -> Result[dict[str, Any], str]:
         """Get GitLab CI/CD pipeline status."""
-        if not self._authenticated or not self._http_pool:
-            return Failure("Not authenticated" if not self._authenticated else "HTTP pool not initialized")
+        # Check prerequisites
+        auth_check = self._check_authentication_and_pool()
+        if isinstance(auth_check, Failure):
+            return auth_check
 
+        # Fetch pipeline data
+        assert self._http_pool is not None  # Validated by auth check
         try:
             async with self._http_pool.get_session("gitlab") as session:
                 result = await session.get(
@@ -351,16 +355,30 @@ class GitLabSDK:
                 )
         except (OSError, ValueError, KeyError) as e:
             return Failure(f"Failed to get GitLab pipeline status: {e}")
-        else:
-            if isinstance(result, Failure):
-                return Failure(result.failure())
 
-            response = result.unwrap()
-            return (
-                Failure(f"GitLab API error: {response.status_code}")
-                if not response.is_success
-                else Success((response.json_data or [])[0] if response.json_data else {"status": "no_pipelines"})
-            )
+        # Process response using helper method
+        return self._process_pipeline_response(result)
+
+    def _check_authentication_and_pool(self) -> Result[None, str]:
+        """Check if authenticated and HTTP pool is initialized."""
+        if not self._authenticated:
+            return Failure("Not authenticated")
+        if not self._http_pool:
+            return Failure("HTTP pool not initialized")
+        return Success(None)
+
+    def _process_pipeline_response(self, result: Result[Any, str]) -> Result[dict[str, Any], str]:
+        """Process GitLab pipeline response."""
+        if isinstance(result, Failure):
+            return Failure(result.failure())
+
+        response = result.unwrap()
+        if not response.is_success:
+            return Failure(f"GitLab API error: {response.status_code}")
+
+        if isinstance(response.json_data, list) and response.json_data:
+            return Success(response.json_data[0])
+        return Success({"status": "no_pipelines"})
 
 
 class GitHubAdvancedSDK:
@@ -752,4 +770,5 @@ def get_platform_sdk() -> PlatformSDK:
     """Get the global platform SDK instance."""
     if _global_platform_sdk is None:
         globals()["_global_platform_sdk"] = PlatformSDK()
+    assert _global_platform_sdk is not None  # Help mypy understand this is not None
     return _global_platform_sdk
