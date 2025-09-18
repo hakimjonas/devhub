@@ -1165,12 +1165,18 @@ def _resolve_identifiers(
         org_name=organization,
     )
 
-    # Resolve PR number
+    # Resolve PR number (only if PR processing is enabled)
     explicit_pr_number = getattr(args, "pr_number", None)
-    pr_result = resolve_pr_number(repo, explicit_pr_number, branch, jira_key)
-    if isinstance(pr_result, Failure):
-        return Failure(pr_result.failure())
-    pr_number = pr_result.unwrap()
+    no_pr = getattr(args, "no_pr", False)
+
+    if no_pr and not explicit_pr_number:
+        # Skip PR resolution if --no-pr is set and no explicit PR provided
+        pr_number = None
+    else:
+        pr_result = resolve_pr_number(repo, explicit_pr_number, branch, jira_key)
+        if isinstance(pr_result, Failure):
+            return Failure(pr_result.failure())
+        pr_number = pr_result.unwrap()
 
     return Success((jira_key, pr_number))
 

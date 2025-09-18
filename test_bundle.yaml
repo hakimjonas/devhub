@@ -1,0 +1,31 @@
+claude_optimized: true
+config:
+  defaults:
+    bundle:
+      include_docs: true
+      include_tests: true
+      max_files: 100
+    platform: auto
+  profiles:
+    personal:
+      github:
+        enabled: true
+        projects: true
+      jira:
+        enabled: false
+      platforms:
+        project_management: github
+        repository: github
+    work:
+      github:
+        enabled: true
+        organization: ''
+      jira:
+        base_url: ''
+        enabled: true
+      platforms:
+        project_management: jira
+        repository: github
+  version: '1.0'
+pr: null
+project: /home/hakim/tools/devhub

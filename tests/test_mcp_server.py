@@ -3,6 +3,7 @@
 These tests mock external dependencies to avoid network/CLI calls and to keep them fast.
 """
 
+import asyncio
 import json
 from typing import Any
 from unittest.mock import Mock
@@ -35,20 +36,14 @@ def test_initialize_and_tools_list() -> None:
     server = DevHubMCPServer()
 
     # Actual initialize call
-    init_resp = (
-        __import__("asyncio")
-        .get_event_loop()
-        .run_until_complete(server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize"}))
-    )
+    import asyncio
+
+    init_resp = asyncio.run(server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize"}))
     assert init_resp["id"] == 1
     assert "result" in init_resp
     assert "protocolVersion" in init_resp["result"]
 
-    tools_resp = (
-        __import__("asyncio")
-        .get_event_loop()
-        .run_until_complete(server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
-    )
+    tools_resp = asyncio.run(server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
     assert tools_resp["id"] == 2
     tools = tools_resp["result"]["tools"]
     names = {t["name"] for t in tools}
@@ -61,11 +56,7 @@ def test_initialize_and_tools_list() -> None:
 def test_handle_unknown_method() -> None:
     """Return method-not-found error for unknown JSON-RPC method."""
     server = DevHubMCPServer()
-    resp = (
-        __import__("asyncio")
-        .get_event_loop()
-        .run_until_complete(server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "nope"}))
-    )
+    resp = asyncio.run(server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "nope"}))
     assert resp["id"] == 3
     assert resp["error"]["code"] == -32601
 
@@ -101,7 +92,7 @@ def test_get_bundle_context_happy(
         },
     }
 
-    resp = __import__("asyncio").get_event_loop().run_until_complete(server.handle_request(req))
+    resp = asyncio.run(server.handle_request(req))
     assert resp["id"] == 4
     assert "result" in resp
     content = resp["result"]["content"][0]["text"]
@@ -119,7 +110,7 @@ def test_tools_call_unknown_tool() -> None:
         "method": "tools/call",
         "params": {"name": "no-tool", "arguments": {}},
     }
-    resp = __import__("asyncio").get_event_loop().run_until_complete(server.handle_request(req))
+    resp = asyncio.run(server.handle_request(req))
     assert resp["id"] == 5
     assert resp["error"]["code"] == -32602
 
@@ -142,7 +133,7 @@ def test_get_jira_issue_happy(mock_load_config: Mock, mock_get_creds_cfg: Mock, 
         "method": "tools/call",
         "params": {"name": "get-jira-issue", "arguments": {"jira_key": "ACME-1"}},
     }
-    resp = __import__("asyncio").get_event_loop().run_until_complete(server.handle_request(req))
+    resp = asyncio.run(server.handle_request(req))
     assert resp["id"] == 6
     payload = json.loads(resp["result"]["content"][0]["text"])
     assert payload["key"] == "ACME-1"
@@ -165,7 +156,7 @@ def test_get_pr_details_with_diff(mock_repo: Mock, mock_details: Mock, mock_diff
         "method": "tools/call",
         "params": {"name": "get-pr-details", "arguments": {"pr_number": 123, "include_diff": True}},
     }
-    resp = __import__("asyncio").get_event_loop().run_until_complete(server.handle_request(req))
+    resp = asyncio.run(server.handle_request(req))
     assert resp["id"] == 7
     payload = json.loads(resp["result"]["content"][0]["text"])
     assert payload["id"] == 123
@@ -196,7 +187,7 @@ def test_get_pr_comments(mock_repo: Mock, mock_comments: Mock) -> None:
         "method": "tools/call",
         "params": {"name": "get-pr-comments", "arguments": {"pr_number": 7, "limit": 1}},
     }
-    resp = __import__("asyncio").get_event_loop().run_until_complete(server.handle_request(req))
+    resp = asyncio.run(server.handle_request(req))
     assert resp["id"] == 8
     payload = json.loads(resp["result"]["content"][0]["text"])
     assert payload["pr_number"] == 7
@@ -217,6 +208,6 @@ def test_tool_call_exception_is_caught(mock_repo: Mock, mock_repo_unused: Mock) 
         "method": "tools/call",
         "params": {"name": "get-pr-details", "arguments": {"pr_number": 1}},
     }
-    resp = __import__("asyncio").get_event_loop().run_until_complete(server.handle_request(req))
+    resp = asyncio.run(server.handle_request(req))
     assert resp["id"] == 9
     assert resp["error"]["code"] == -32603

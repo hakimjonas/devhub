@@ -3,7 +3,9 @@
 This CLI works globally, like git or docker, without contaminating projects.
 """
 
+import argparse
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -16,8 +18,10 @@ from typing import cast
 import click
 import yaml
 from returns.result import Failure
+from returns.result import Success
 
 from devhub.claude_integration import claude_code_review_context
+from devhub.main import handle_bundle_command
 from devhub.vault import CredentialMetadata
 from devhub.vault import CredentialType
 from devhub.vault import SecureVault
@@ -1159,34 +1163,88 @@ def context() -> None:
 @click.option("--pr", type=int, help="Pull/Merge request number")
 @click.option("--claude", is_flag=True, help="Optimize for Claude Code")
 @click.option("--output", "-o", help="Output file (default: stdout)")
-def bundle(pr: int | None, claude: bool, output: str | None) -> None:
+@click.option("--jira-key", help="Jira issue key (e.g., PROJ-123)")
+@click.option("--branch", help="Git branch name")
+@click.option("--limit", default=10, help="Limit for comments")
+@click.option("--organization", help="GitHub organization")
+@click.option("--no-jira", is_flag=True, help="Exclude Jira data")
+@click.option("--no-pr", is_flag=True, help="Exclude PR data")
+@click.option("--no-diff", is_flag=True, help="Exclude PR diff")
+@click.option("--no-comments", is_flag=True, help="Exclude unresolved comments")
+def bundle(
+    pr: int | None,
+    claude: bool,
+    output: str | None,
+    jira_key: str | None,
+    branch: str | None,
+    limit: int,
+    organization: str | None,
+    no_jira: bool,
+    no_pr: bool,
+    no_diff: bool,
+    no_comments: bool,
+) -> None:
     """Create a comprehensive bundle of project context.
 
     This bundles together code, documentation, issues, and PRs into a
     single context bundle for analysis or review.
     """
+    click.echo("📦 Creating context bundle...")
 
-    async def create_bundle() -> dict[str, Any]:
-        config = load_config()
+    # Create args namespace to match main.py expectations
+    args = argparse.Namespace()
+    args.pr_number = pr
+    args.jira_key = jira_key
+    args.branch = branch
+    args.output_dir = output if output and not output.endswith(".yaml") else None
+    args.out = output if output and output.endswith(".yaml") else None
+    args.limit = limit
+    args.organization = organization
+    args.no_jira = no_jira
+    args.no_pr = no_pr
+    args.no_diff = no_diff
+    args.no_comments = no_comments
+    args.metadata_only = False
+    args.format = "json"
 
-        click.echo("📦 Creating context bundle...")
+    # Handle bundle command from main.py
+    result = handle_bundle_command(args)
 
-        # Create comprehensive project bundle
-        return {
-            "project": str(Path.cwd()),
-            "config": config,
-            "pr": pr,
-            "claude_optimized": claude,
-        }
+    if isinstance(result, Success):
+        bundle_content = result.unwrap()
 
-    bundle_data = asyncio.run(create_bundle())
-
-    if output:
-        with Path(output).open("w") as f:
-            yaml.dump(bundle_data, f)
-        click.echo(f"✅ Bundle saved to: {output}")
+        if output:
+            if output.endswith(".yaml"):
+                # Convert JSON to YAML for YAML output
+                try:
+                    data = json.loads(bundle_content)
+                    with Path(output).open("w") as f:
+                        yaml.dump(data, f, default_flow_style=False)
+                    click.echo(f"✅ Bundle saved to: {output}")
+                except json.JSONDecodeError:
+                    # Fallback: write as text
+                    with Path(output).open("w") as f:
+                        f.write(bundle_content)
+                    click.echo(f"✅ Bundle saved to: {output}")
+            else:
+                # Already handled by main.py logic for directory output
+                click.echo(result.unwrap())
+        # Output to stdout
+        elif claude:
+            # Convert JSON to YAML for Claude optimization
+            try:
+                data = json.loads(bundle_content)
+                click.echo(yaml.dump(data, default_flow_style=False))
+            except json.JSONDecodeError:
+                click.echo(bundle_content)
+        else:
+            click.echo(bundle_content)
+    elif isinstance(result, Failure):
+        click.echo(f"❌ Error: {result.failure()}", err=True)
+        sys.exit(1)
     else:
-        click.echo(yaml.dump(bundle_data))
+        click.echo("❌ Unexpected result type", err=True)
+        sys.exit(1)
 
 
 @cli.command("project-status")
@@ -1241,6 +1299,83 @@ def project_status() -> None:
 
     if files_found:
         click.echo(f"\n📦 Project type: {', '.join(files_found)}")
+
+
+@cli.command()
+def doctor() -> None:
+    """Run health checks and verify DevHub installation."""
+    click.echo("🏥 DevHub Doctor - System Health Check\n")
+
+    checks_passed = 0
+    total_checks = 0
+
+    # Check git
+    total_checks += 1
+    try:
+        result = subprocess.run(["git", "--version"], check=False, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            click.echo("✅ git is available")
+            checks_passed += 1
+        else:
+            click.echo("❌ git is not available")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        click.echo("❌ git is not available")
+
+    # Check GitHub CLI
+    total_checks += 1
+    try:
+        result = subprocess.run(
+            ["bash", "-lc", "command -v gh"], check=False, capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            click.echo("✅ GitHub CLI (gh) is available")
+            checks_passed += 1
+        else:
+            click.echo("❌ GitHub CLI (gh) is not available")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        click.echo("❌ GitHub CLI (gh) is not available")
+
+    # Check if in git repo
+    total_checks += 1
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"], check=False, capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            click.echo("✅ Current directory is a git repository")
+            checks_passed += 1
+        else:
+            click.echo("❌ Current directory is not a git repository")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        click.echo("❌ Current directory is not a git repository")
+
+    # Check Jira credentials
+    total_checks += 1
+    jira_base_url = os.environ.get("JIRA_BASE_URL")
+    jira_email = os.environ.get("JIRA_EMAIL")
+    jira_api_token = os.environ.get("JIRA_API_TOKEN")
+
+    if jira_base_url and jira_email and jira_api_token:
+        click.echo("✅ Jira credentials are configured")
+        checks_passed += 1
+    else:
+        click.echo("⚠️  Jira credentials not found (optional)")
+        # Don't count as failure since it's optional
+        checks_passed += 1
+
+    # Summary
+    click.echo(f"\n📊 Health Check Summary: {checks_passed}/{total_checks} checks passed")
+
+    if checks_passed == total_checks:
+        click.echo("🎉 All systems healthy!")
+    elif checks_passed >= total_checks - 1:
+        click.echo("⚠️  Minor issues detected - mostly functional")
+    else:
+        click.echo("❌ Major issues detected - setup may be incomplete")
+        click.echo("\n💡 Next steps:")
+        click.echo("1. Install missing tools")
+        click.echo("2. Run: devhub init")
+        click.echo("3. Run: devhub auth setup")
 
 
 @cli.group()
