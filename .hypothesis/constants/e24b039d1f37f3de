@@ -1,0 +1,4 @@
+# file: /home/hakim/tools/devhub/src/devhub/plugins.py
+# hypothesis_version: 6.138.7
+
+[0.0, 100, 1000, '*.py', '.', 'PluginResult[T]', 'T', '_', '_global_registry', 'data_source', 'enrichment', 'initialize', 'metadata', 'output', 'transform', 'validation']

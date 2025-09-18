@@ -1,0 +1,4 @@
+# file: /home/hakim/tools/devhub/src/devhub/cache.py
+# hypothesis_version: 6.138.7
+
+[0.0, 100, 300, 1000, 'CacheEntry[T]', 'CacheStats', 'T', 'args', 'kwargs']

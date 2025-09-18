@@ -295,7 +295,14 @@ def parse_config_data(data: dict[str, Any]) -> Result[DevHubConfig, str]:
     try:
         # Parse organizations
         orgs_data = data.get("organizations", {})
-        organizations = tuple(parse_organization_config(name, org_data) for name, org_data in orgs_data.items())
+
+        # Handle both list and dict formats for organizations
+        if isinstance(orgs_data, list):
+            # List format: [{"name": "org1", ...}, {"name": "org2", ...}]
+            organizations = tuple(parse_organization_config(org_data["name"], org_data) for org_data in orgs_data)
+        else:
+            # Dict format: {"org1": {...}, "org2": {...}}
+            organizations = tuple(parse_organization_config(name, org_data) for name, org_data in orgs_data.items())
 
         # Validate default organization exists
         default_org = data.get("default_organization")

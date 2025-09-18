@@ -1,8 +1,8 @@
 # DevHub
 
-> **A functional programming exemplar for developers who demand excellence**
+> **Transform Claude Code into your development orchestrator**
 
-DevHub is a sophisticated CLI tool that demonstrates clean, maintainable Python code through **immutable data structures**, **pure functions**, and **comprehensive type safety**. It seamlessly integrates Jira issues, GitHub pull requests, code diffs, and review comments into organized bundles for efficient offline code review.
+DevHub is a professional CLI tool that enhances Claude Code interactions by providing rich project context from GitHub, GitLab, Jira, and your local repository. Built with **platform-agnostic architecture**, **enterprise-grade security**, and **user-centric design** for seamless multi-platform development workflows.
 
 ## 📚 Documentation
 
@@ -11,24 +11,29 @@ DevHub is a sophisticated CLI tool that demonstrates clean, maintainable Python 
 
 ## 🚀 Features
 
-### Core Functionality
-- **Comprehensive Bundle Generation**: Combines Jira issues, GitHub PRs, diffs, and review comments into structured bundles
-- **Intelligent Auto-Detection**: Automatically resolves Jira keys and PR numbers from branch names and repository context
-- **Flexible Output Formats**: Generate both human-readable files and structured JSON for programmatic use
-- **Selective Data Inclusion**: Fine-grained control over what data to include (Jira, PR, diff, comments)
+### 🌍 Multi-Platform Excellence
+- **Platform Agnostic**: Equal first-class support for GitHub, GitLab, and local git
+- **No Platform Favoritism**: Seamless workflows across different platforms
+- **Migration Ready**: Zero-disruption transitions (GitHub → GitLab, mixed environments)
+- **Flexible Configuration**: Per-project settings with intelligent defaults
 
-### Architecture & Quality
-- **Organization-First Configuration**: Multi-tenant support with hierarchical configuration system
-- **Immutable Data Architecture**: All data structures are frozen dataclasses ensuring thread safety
-- **Type-Safe Operations**: 100% type coverage with strict mypy and pyright compliance
-- **Functional Error Handling**: Uses `returns.Result` for explicit error propagation without exceptions
-- **Property-Based Testing**: Comprehensive test suite with Hypothesis for robust validation (92.89% coverage)
-- **Zero-Mutation Design**: Pure functions and immutable collections throughout
+### 🧙‍♂️ User-Centric Setup
+- **Smart Setup Wizard**: Complete guided setup with auto-detection
+- **Credential Security**: Encrypted vault with AES-256 encryption
+- **SSH Detection**: Automatic authentication discovery
+- **Team-Specific Patterns**: Supports team ticket prefixes (DATAEX-, BACKEND-, etc.)
 
-### AI Agent Integration
-- **MCP (Model Context Protocol) Server**: Native support for AI agents like Claude Desktop
-- **Async-First SDK**: High-performance `DevHubClient` for programmatic access
-- **Real-Time Context**: Live development context for AI-assisted code review and analysis
+### 🤖 Claude Code Integration
+- **Enhanced Context**: Transform basic assistance into strategic partnership
+- **Project Intelligence**: Comprehensive understanding of your codebase
+- **Real-Time Insights**: Live development context for AI-assisted workflows
+- **Strategic Guidance**: Move beyond generic advice to project-specific recommendations
+
+### 🏗️ Professional Architecture
+- **Global Tool Installation**: Install once, use everywhere (like git, docker)
+- **Project-Based Configuration**: Clean, non-contaminating setup per project
+- **Enterprise Security**: Secure credential management with audit logging
+- **Type-Safe Operations**: Built with Python 3.13 and strict type checking
 
 ## 📋 Requirements
 
@@ -39,50 +44,40 @@ DevHub is a sophisticated CLI tool that demonstrates clean, maintainable Python 
 
 ## 🛠️ Installation
 
-DevHub provides multiple installation methods to suit different use cases and environments.
+DevHub follows professional tool practices with global installation and per-project configuration.
 
-### 📦 PyPI (Recommended for End Users)
-
-```bash
-# Install from PyPI using pip
-pip install devhub
-
-# Or using pipx (recommended for CLI tools)
-pipx install devhub
-
-# Verify installation
-devhub --version
-devhub doctor
-```
-
-### ⚡ UV Tool (Modern Python Package Manager)
+### ⚡ Quick Install (Recommended)
 
 ```bash
-# Install globally using uv
-uv tool install devhub
+# Method 1: UV tool (fastest, modern)
+uv tool install --from /path/to/devhub devhub
 
-# Install from PyPI using uv
-uv add devhub
+# Method 2: Pipx (standard, reliable)
+pipx install /path/to/devhub
 
-# Verify installation
-devhub --version
-devhub doctor
+# Method 3: Automated installer
+python3 install_global.py
 ```
+
+**Benefits:**
+- ✅ **Global Tool**: Install once, use anywhere (like `git`, `docker`)
+- ✅ **Clean Projects**: Never contaminates project directories
+- ✅ **Professional CLI**: Follows Unix philosophy and best practices
+- ✅ **Fast Setup**: 30-second installation with `uv`
 
 ### 🔧 Development Installation
 
 ```bash
-# Clone the repository
+# Clone and install for development
 git clone https://github.com/hakimjonas/devhub.git
 cd devhub
+
+# Install in editable mode
+uv tool install --editable .
 
 # Install dependencies and development tools
 uv sync
 uv run pre-commit install
-
-# Run in development mode
-uv run devhub --version
-uv run devhub doctor
 
 # Run tests
 uv run pytest
@@ -90,44 +85,50 @@ uv run pytest
 
 ## 🎯 Quick Start
 
-### Basic Usage
+### Simple 3-Step Setup
 
 ```bash
-# Navigate to any git repository
-cd /path/to/your/git/repo
+# 1. Navigate to your project
+cd /path/to/your/project
 
-# Run health check to verify setup
-devhub doctor
+# 2. Initialize DevHub (runs smart setup wizard)
+devhub init
 
-# Auto-detect and bundle current branch context
-devhub bundle
-
-# Bundle specific Jira issue with auto-detected PR
-devhub bundle --jira-key PROJ-123
-
-# Bundle specific PR with auto-detected Jira issue
-devhub bundle --pr-number 456
-
-# Bundle with selective data inclusion
-devhub bundle --jira-key PROJ-123 --no-diff --no-comments
-
-# Generate JSON output for programmatic use
-devhub bundle --jira-key PROJ-123 --format json
+# 3. Start using enhanced Claude Code integration
+devhub claude context
 ```
 
-### Setup Wizard
+### 🧙‍♂️ Smart Setup Wizard
 
-For first-time setup, DevHub provides an interactive configuration wizard:
+The wizard auto-detects your environment and guides you through setup:
 
 ```bash
-# Run the setup wizard (auto-detects if configuration is needed)
-devhub doctor
+devhub init  # Complete setup wizard (default)
+```
 
-# The wizard will guide you through:
-# - GitHub CLI authentication verification
-# - Jira credentials setup (optional)
-# - Organization configuration
-# - Testing your setup
+**The wizard detects:**
+- ✅ **Repository Platform**: GitHub, GitLab, or local git
+- ✅ **Authentication**: SSH keys, GitHub CLI, environment tokens
+- ✅ **Jira Integration**: Auto-detects Jira URLs and project keys
+- ✅ **Team Patterns**: Finds your ticket prefixes (DATAEX-, BACKEND-)
+
+### Real-World Examples
+
+```bash
+# Work Project (GitHub + Jira + DATAEX tickets)
+cd /work/backend-service
+devhub init
+# Wizard detects: GitHub, Jira URL, DATAEX- pattern
+
+# Personal Project (GitHub + GitHub Projects)
+cd /personal/side-project
+devhub init
+# Wizard detects: GitHub, suggests GitHub Projects
+
+# Work Project (GitLab + Jira + team-specific tickets)
+cd /work/new-microservice
+devhub init
+# Wizard detects: GitLab, Jira URL, multiple team patterns
 ```
 
 ### Configuration

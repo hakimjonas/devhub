@@ -1,0 +1,4 @@
+# file: /home/hakim/tools/devhub/src/devhub/resilience.py
+# hypothesis_version: 6.138.7
+
+[0.0, 0.25, 1.0, 2.0, 60.0, 1000, 'CircuitBreakerState', 'RetryState', 'T', 'closed', 'half_open', 'open']

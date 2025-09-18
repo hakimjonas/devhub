@@ -32,11 +32,23 @@ dependencies = [
     "result>=0.17.0", # For Result types
     "toolz>=0.12.1", # For FP utilities
     "immutables>=0.20", # Immutable collections
+    "aiohttp>=3.9.0", # HTTP client with connection pooling
+    "aiofiles>=24.1.0", # Async file operations
+    "cryptography>=45.0.6",
+    "keyring>=25.6.0",
+    "argon2-cffi>=25.1.0",
+    "prometheus-client>=0.22.1",
+    "psutil>=6.1.1",
+    "click>=8.0.0", # CLI framework
+    "pyyaml>=6.0", # YAML config files
+    "types-pyyaml>=6.0.12.20250915",
+    "types-psutil>=5.9.5.20250327",
+    "types-aiofiles>=23.2.0.20241106",
+    "types-setuptools>=75.8.0.20250918",
 ]
 
 [project.scripts]
-devhub = "devhub.main:main"
-devhub-mcp = "devhub.mcp_server:cli_main"
+devhub = "devhub.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/hakimjonas/devhub"
@@ -100,6 +112,8 @@ ignore = [
 "**/__init__.py" = ["F401", "D104"]
 "src/devhub/main.py" = ["EXE001", "S310", "G004", "PLR0911"]
 "src/devhub/config.py" = ["PLR2004", "PLR0911", "BLE001"]
+"src/devhub/vault.py" = ["S105"]  # False positives for enum values
+"src/devhub/cli.py" = ["C901", "PLR0912", "PLR0915"]  # CLI wizard complexity acceptable
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

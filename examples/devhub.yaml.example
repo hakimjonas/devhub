@@ -1,0 +1,60 @@
+# DevHub Configuration Example
+# ============================
+# Copy this file to .devhub.yaml in your project root and customize
+
+version: 1.0
+
+# GitHub Configuration
+github:
+  enabled: true
+  organization: "your-github-org"  # Replace with your GitHub organization
+  # Optional: specific repository
+  # repository: "your-repo-name"
+
+# Jira Configuration
+jira:
+  enabled: true
+  base_url: "https://your-company.atlassian.net"  # Replace with your Jira instance
+  project_key: "PROJ"  # Replace with your Jira project key
+
+# GitLab Configuration (if using GitLab instead of GitHub)
+gitlab:
+  enabled: false  # Set to true if using GitLab
+  base_url: "https://gitlab.com"  # Or your self-hosted GitLab
+  # project_id: "your-project-id"
+
+# Bundle Configuration
+bundle:
+  max_files: 100
+  include_tests: true
+  include_docs: true
+  claude_optimized: true
+  exclude_patterns:
+    - "*.pyc"
+    - "__pycache__"
+    - ".git"
+    - "node_modules"
+    - "venv"
+    - ".env"
+
+# Claude Integration
+claude:
+  max_context_tokens: 50000
+  include_git_history: true
+  include_issue_context: true
+  auto_correlate_jira: true
+  history_depth: 20  # Number of commits to include
+
+# Platform Priority
+platforms:
+  primary: "github"  # Options: github, gitlab, local
+
+# Development Settings
+development:
+  debug: false
+  cache_ttl: 3600  # Cache time-to-live in seconds
+
+# Security Settings
+security:
+  mask_secrets: true
+  audit_logging: true
