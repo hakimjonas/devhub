@@ -347,4 +347,4 @@ def create_cache_key(*args: object, **kwargs: object) -> str:
         >>> key = create_cache_key("user", 123, role="admin")
         >>> assert key == create_cache_key("user", 123, role="admin")
     """
-    return FunctionalCache._make_key(*args, **kwargs)  # noqa: SLF001
+    return FunctionalCache._make_key(*args, **kwargs)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]

@@ -31,7 +31,7 @@ async def setup_existing_project_enhancement() -> None:
 
                     repo_match = re.search(r"github\.com[:/]([^/\s]+)/([^/\s\.]+)", git_config)
                     if repo_match:
-                        owner, repo = repo_match.groups()
+                        _owner, _repo = repo_match.groups()  # Example placeholders
         except (OSError, UnicodeDecodeError):
             pass
     else:
@@ -44,8 +44,8 @@ async def setup_existing_project_enhancement() -> None:
             pass
 
     # Step 2: Quick DevHub Setup
-
-    project_path / ".devhub.yaml"
+    devhub_config = project_path / ".devhub.yaml"
+    print(f"DevHub config would be created at: {devhub_config}")
 
     # Step 3: Enhanced Claude Context Generation
 

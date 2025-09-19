@@ -197,6 +197,7 @@ pythonVersion = "3.13"
 typeCheckingMode = "strict"
 reportMissingImports = true
 reportMissingTypeStubs = true
+exclude = ["examples", "install_global.py"]
 reportImportCycles = true
 reportUnusedImport = true
 reportUnusedVariable = true
