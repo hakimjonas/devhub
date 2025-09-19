@@ -13,3 +13,9 @@ coverage.xml
 build/
 dist/
 *.egg-info/
+
+# DevHub generated bundles
+review-bundles/
+bundles/
+*-bundle/
+*.bundle/

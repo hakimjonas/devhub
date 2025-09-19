@@ -1,0 +1,19 @@
+bundle:
+  claude_optimized: true
+  include_docs: true
+  include_tests: true
+  max_files: 100
+github:
+  enabled: true
+  organization: hakimjonas
+  project_number: null
+  projects: true
+  repository: devhub
+gitlab:
+  enabled: false
+jira:
+  enabled: false
+platforms:
+  project_management: github
+  repository: github
+version: '1.0'
