@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from dataclasses import field
@@ -772,6 +773,26 @@ def get_jira_credentials() -> JiraCredentials | None:
         return None
 
 
+async def get_jira_credentials_async() -> JiraCredentials | None:
+    """Get Jira credentials from environment variables, vault, and config - async version."""
+    try:
+        # Get from environment variables
+        env_creds = _get_env_credentials()
+        if env_creds.base_url and env_creds.email and env_creds.api_token:
+            return _create_jira_credentials(env_creds)
+
+        # Get from vault and config (async)
+        vault_creds = await _get_vault_credentials()
+        config_base_url = _get_config_base_url()
+
+        # Merge all sources
+        final_creds = _merge_credentials(env_creds, vault_creds, config_base_url)
+        return _create_jira_credentials(final_creds)
+
+    except (OSError, ValueError, KeyError, AttributeError):
+        return None
+
+
 def fetch_jira_issue(credentials: JiraCredentials, key: str) -> Result[JiraIssue, str]:
     """Fetch Jira issue details using subprocess first, then urllib.
 
@@ -851,6 +872,81 @@ def _parse_json_response(json_str: str) -> Result[dict[str, Any], str]:
         return Success(json.loads(json_str))
     except json.JSONDecodeError as e:
         return Failure(f"Failed to parse JSON: {e}")
+
+
+def update_jira_issue(credentials: JiraCredentials, key: str, updates: dict[str, Any]) -> Result[dict[str, Any], str]:
+    """Update Jira issue with new field values.
+
+    Args:
+        credentials: Jira authentication credentials
+        key: Jira issue key (e.g., PROJ-123)
+        updates: Dictionary of field updates (e.g., {"summary": "New title", "description": "New description"})
+
+    Returns:
+        Success with response data or Failure with error message
+    """
+    url = f"{credentials.base_url}/rest/api/3/issue/{key}"
+    auth_header = base64.b64encode(f"{credentials.email}:{credentials.api_token}".encode()).decode()
+
+    # Prepare update payload
+    payload = {"fields": updates}
+    payload_json = json.dumps(payload)
+
+    # Try subprocess (curl) first to support tests that mock run_command
+    curl_cmd = [
+        "curl",
+        "-sS",
+        "-f",
+        "-m",
+        "30",
+        "-X",
+        "PUT",
+        "-H",
+        f"Authorization: Basic {auth_header}",
+        "-H",
+        "Accept: application/json",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        payload_json,
+        url,
+    ]
+    curl_result = run_command(curl_cmd, check=False)
+    match curl_result:
+        case Success(_):
+            # Successful update usually returns empty response for PUT
+            return Success({"status": "updated", "key": key, "updates": updates})
+        case Failure(msg) if "curl:" in msg:
+            # Curl failed, try urllib as fallback
+            pass
+        case Failure(msg):
+            return Failure(f"Failed to update Jira issue {key}: {msg}")
+
+    # Fallback to urllib
+    try:
+        # Create a custom request class for PUT method
+        class PutRequest(urllib.request.Request):
+            def get_method(self) -> str:
+                return "PUT"
+
+        req = PutRequest(
+            url,
+            data=payload_json.encode(),
+            headers={
+                "Authorization": f"Basic {auth_header}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=30):
+            # Update usually returns empty response, but we return success info
+            return Success({"status": "updated", "key": key, "updates": updates})
+
+    except urllib.error.HTTPError as e:
+        return Failure(f"HTTP {e.code}: Failed to update Jira issue {key}")
+    except (urllib.error.URLError, TimeoutError) as e:
+        return Failure(f"Network error updating Jira issue {key}: {e}")
 
 
 # -----------------------------

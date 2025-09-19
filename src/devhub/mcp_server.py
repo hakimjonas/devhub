@@ -29,10 +29,12 @@ from devhub.main import fetch_pr_diff
 from devhub.main import fetch_unresolved_comments
 from devhub.main import get_current_branch
 from devhub.main import get_jira_credentials
+from devhub.main import get_jira_credentials_async
 from devhub.main import get_jira_credentials_from_config
 from devhub.main import get_repository_info
 from devhub.main import resolve_jira_key_with_config
 from devhub.main import resolve_pr_number
+from devhub.main import update_jira_issue
 
 
 logger = logging.getLogger(__name__)
@@ -106,6 +108,18 @@ class DevHubMCPServer:
                         },
                         "comment_limit": {"type": "integer", "description": "Max comments to include", "default": 20},
                     },
+                },
+            },
+            "update-jira-issue": {
+                "description": "Update Jira issue fields (e.g., summary, description)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "jira_key": {"type": "string", "description": "Jira issue key (e.g., PROJ-123)"},
+                        "summary": {"type": "string", "description": "New issue summary/title"},
+                        "description": {"type": "string", "description": "New issue description"},
+                    },
+                    "required": ["jira_key"],
                 },
             },
         }
@@ -190,6 +204,8 @@ class DevHubMCPServer:
                 result = await self._get_pr_comments(**arguments)
             elif tool_name == "get-current-branch-context":
                 result = await self._get_current_branch_context(**arguments)
+            elif tool_name == "update-jira-issue":
+                result = await self._update_jira_issue(**arguments)
             else:
                 return self._error_response(request_id, -32602, f"Unknown tool: {tool_name}")
 
@@ -382,6 +398,45 @@ class DevHubMCPServer:
     async def _get_current_branch_context(self, **kwargs: str | int | bool | None) -> dict[str, Any]:
         """Get context for current branch with auto-detection."""
         return await self._get_bundle_context(**kwargs)
+
+    async def _update_jira_issue(self, jira_key: str, **kwargs: str | None) -> dict[str, Any]:
+        """Update Jira issue fields."""
+        # Load configuration and get credentials
+        config_result = load_config_with_environment()
+        devhub_config = config_result.unwrap() if isinstance(config_result, Success) else None
+        credentials = None
+        if devhub_config:
+            credentials = get_jira_credentials_from_config(devhub_config, None)
+        if not credentials:
+            credentials = await get_jira_credentials_async()
+
+        if not credentials:
+            error_msg = "No Jira credentials available. Please configure credentials first."
+            raise TypeError(error_msg)
+
+        # Build updates dictionary from provided arguments
+        updates = {}
+        if kwargs.get("summary"):
+            updates["summary"] = kwargs["summary"]
+        if kwargs.get("description"):
+            updates["description"] = kwargs["description"]
+
+        if not updates:
+            error_msg = "No updates provided. Please specify summary, description, or other fields to update."
+            raise TypeError(error_msg)
+
+        # Update the issue
+        result = update_jira_issue(credentials, jira_key, updates)
+        if isinstance(result, Success):
+            response_data = result.unwrap()
+            return {
+                "status": "success",
+                "message": f"Successfully updated Jira issue {jira_key}",
+                "updated_fields": list(updates.keys()),
+                **response_data,
+            }
+        error_msg = f"Failed to update Jira issue {jira_key}: {result.failure()}"
+        raise TypeError(error_msg)
 
     def _error_response(self, request_id: int | str | None, code: int, message: str) -> dict[str, Any]:
         """Create error response."""

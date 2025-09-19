@@ -75,13 +75,14 @@ class TestDevHubMCPServer:
         assert response["id"] == 2
         assert "result" in response
         assert "tools" in response["result"]
-        assert len(response["result"]["tools"]) == 5
+        assert len(response["result"]["tools"]) == 6
 
         # Check tool structure
         tools = response["result"]["tools"]
         tool_names = [tool["name"] for tool in tools]
         assert "get-bundle-context" in tool_names
         assert "get-jira-issue" in tool_names
+        assert "update-jira-issue" in tool_names
 
     @pytest.mark.asyncio
     async def test_handle_request_tool_call_get_bundle_context(self):
