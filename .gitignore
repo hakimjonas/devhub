@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+.hypothesis/
 .coverage
 coverage.xml
 .DS_Store
