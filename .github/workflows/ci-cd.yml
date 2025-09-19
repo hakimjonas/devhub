@@ -36,12 +36,12 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras --dev
 
-    - name: Run linting and formatting (CLAUDE.md requirement)
+    - name: Run linting and formatting
       run: |
         uv run ruff check .
         uv run ruff format --check .
 
-    - name: Run type checking (CLAUDE.md requirement)
+    - name: Run type checking
       run: |
         uv run mypy .
         # TODO: Re-enable pyright after fixing 510 type errors - see issue #16
@@ -53,7 +53,7 @@ jobs:
         uv run safety check
       if: matrix.os == 'ubuntu-latest'
         
-    - name: Run tests with coverage (CLAUDE.md requirement)
+    - name: Run tests with coverage
       run: uv run pytest --cov=devhub --cov-report=xml --cov-report=term-missing --cov-fail-under=90
       
     - name: Upload coverage to Codecov
