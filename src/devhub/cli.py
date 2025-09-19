@@ -1,6 +1,27 @@
-"""DevHub CLI - Professional command-line interface.
+"""DevHub command-line interface.
 
-This CLI works globally, like git or docker, without contaminating projects.
+This module implements the main CLI for DevHub, providing commands for project setup,
+credential management, and context generation. The CLI follows Unix conventions and
+is designed for global installation with per-project configuration.
+
+The interface provides comprehensive help text, clear error messages, and guided setup
+to ensure users can quickly become productive with minimal learning curve.
+
+Available Commands:
+    auth: Manage credentials securely with encrypted vault storage
+    bundle: Create project context bundles for AI-assisted development
+    claude: Integration tools for Claude Code and MCP server setup
+    config: Manage configuration at project and user levels
+    doctor: Run diagnostic checks and verify system health
+    init: Interactive setup wizard with automatic platform detection
+    project-status: Display current project configuration and git status
+
+Design Goals:
+    - Zero project contamination (global tool, local configs)
+    - Clear, actionable error messages and guidance
+    - Support for GitHub, GitLab, and Jira workflows
+    - Secure credential handling with encryption
+    - Comprehensive validation and health checking
 """
 
 import argparse
@@ -1249,13 +1270,15 @@ def _show_next_steps(config: dict[str, Any]) -> None:
 @click.group()
 @click.version_option(version="0.1.0", prog_name="DevHub")
 def cli() -> None:
-    """DevHub - Transform Claude Code into your development orchestrator.
+    """DevHub - Development platform integration for AI-assisted workflows.
 
-    DevHub enhances your Claude Code interactions by providing rich project
-    context from GitHub, GitLab, Jira, and your local repository.
+    DevHub aggregates project context from GitHub, GitLab, Jira, and git repositories
+    into structured bundles that enhance AI assistant interactions. It provides both
+    command-line tools and Model Context Protocol (MCP) server capabilities.
 
-    🔧 MCP Integration: DevHub provides Model Context Protocol tools for Claude!
-    Run 'devhub claude mcp' to see available tools and setup instructions.
+    Getting Started:
+    Run 'devhub init' in any project to set up platform integrations with the
+    interactive setup wizard. Use 'devhub claude mcp' for AI assistant setup.
 
     Examples:
       # Initialize DevHub with guided wizard
@@ -1439,30 +1462,35 @@ def claude() -> None:
 
 @claude.command()
 def mcp() -> None:
-    """Show MCP (Model Context Protocol) tools available for Claude."""
-    click.echo("🔧 DevHub MCP Tools for Claude")
+    """Display MCP server tools and setup instructions for AI assistants."""
+    click.echo("DevHub MCP Server Tools")
     click.echo("")
-    click.echo("Available MCP tools when devhub is configured in Claude Desktop:")
+    click.echo("Available tools when DevHub is configured as an MCP server:")
     click.echo("")
-    click.echo("📖 READ OPERATIONS:")
-    click.echo("  • get-bundle-context        Get comprehensive project context")
-    click.echo("  • get-jira-issue           Fetch specific Jira issue details")
-    click.echo("  • get-pr-details           Fetch GitHub PR information")
-    click.echo("  • get-pr-comments          Fetch unresolved PR review comments")
-    click.echo("  • get-current-branch-context  Auto-detect context from current branch")
+    click.echo("Read Operations:")
+    click.echo("  get-bundle-context        - Aggregate project context from all sources")
+    click.echo("  get-jira-issue           - Retrieve specific Jira issue details")
+    click.echo("  get-pr-details           - Fetch GitHub pull request information")
+    click.echo("  get-pr-comments          - Get unresolved PR review comments")
+    click.echo("  get-current-branch-context - Auto-detect context from current branch")
     click.echo("")
-    click.echo("✏️  WRITE OPERATIONS:")
-    click.echo("  • update-jira-issue        Update Jira issue fields (summary, description)")
+    click.echo("Write Operations:")
+    click.echo("  update-jira-issue        - Modify Jira issue fields (title, description)")
     click.echo("")
-    click.echo("💡 TIP: Use 'get-current-branch-context' to automatically detect")
-    click.echo("   what you're working on from your git branch!")
+    click.echo("Quick Start:")
+    click.echo("  Use 'get-current-branch-context' to automatically detect your current")
+    click.echo("  work context from git branch and project configuration.")
     click.echo("")
-    click.echo("📋 To configure in Claude Desktop, add to config.json:")
-    click.echo('   "mcpServers": {')
-    click.echo('     "devhub": {')
-    click.echo('       "command": "devhub-mcp"')
-    click.echo("     }")
-    click.echo("   }")
+    click.echo("Claude Desktop Configuration:")
+    click.echo("  Add this to ~/.config/claude-desktop/claude_desktop_config.json:")
+    click.echo("")
+    click.echo("  {")
+    click.echo('    "mcpServers": {')
+    click.echo('      "devhub": {')
+    click.echo('        "command": "devhub-mcp"')
+    click.echo("      }")
+    click.echo("    }")
+    click.echo("  }")
 
 
 @claude.command()

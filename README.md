@@ -1,8 +1,8 @@
 # DevHub
 
-> **Transform Claude Code into your development orchestrator**
+> **Development platform integration for AI-assisted workflows**
 
-DevHub is a professional CLI tool that enhances Claude Code interactions by providing rich project context from GitHub, GitLab, Jira, and your local repository. Built with **platform-agnostic architecture**, **enterprise-grade security**, and **user-centric design** for seamless multi-platform development workflows.
+DevHub aggregates project context from GitHub, GitLab, Jira, and git repositories into structured bundles that enhance AI assistant interactions. It provides both command-line tools and Model Context Protocol (MCP) server capabilities for seamless integration with AI development workflows.
 
 ## 📚 Documentation
 
@@ -11,29 +11,29 @@ DevHub is a professional CLI tool that enhances Claude Code interactions by prov
 
 ## 🚀 Features
 
-### 🌍 Multi-Platform Excellence
-- **Platform Agnostic**: Equal first-class support for GitHub, GitLab, and local git
-- **No Platform Favoritism**: Seamless workflows across different platforms
-- **Migration Ready**: Zero-disruption transitions (GitHub → GitLab, mixed environments)
-- **Flexible Configuration**: Per-project settings with intelligent defaults
+### 🌍 Multi-Platform Support
+- **GitHub, GitLab, Git**: Works with any git repository and hosting platform
+- **Flexible Migration**: Easy to switch between platforms or use multiple simultaneously
+- **Per-Project Configuration**: Each project maintains its own settings and integrations
+- **Intelligent Defaults**: Auto-detects platform and authentication methods
 
-### 🧙‍♂️ User-Centric Setup
-- **Smart Setup Wizard**: Complete guided setup with auto-detection
-- **Credential Security**: Encrypted vault with AES-256 encryption
-- **SSH Detection**: Automatic authentication discovery
-- **Team-Specific Patterns**: Supports team ticket prefixes (DATAEX-, BACKEND-, etc.)
+### 🔧 Easy Setup
+- **Interactive Wizard**: Guided setup detects your environment automatically
+- **Secure Credentials**: Encrypted storage with AES-256 encryption
+- **Authentication Detection**: Works with SSH keys, tokens, and GitHub CLI
+- **Team Patterns**: Automatically finds your ticket naming conventions (PROJ-123, etc.)
 
-### 🤖 Claude Code Integration
-- **Enhanced Context**: Transform basic assistance into strategic partnership
-- **Project Intelligence**: Comprehensive understanding of your codebase
-- **Real-Time Insights**: Live development context for AI-assisted workflows
-- **Strategic Guidance**: Move beyond generic advice to project-specific recommendations
+### 🤖 AI Assistant Integration
+- **Structured Context**: Bundles project information in formats AI assistants understand
+- **Real-Time Data**: Always current information from your development platforms
+- **MCP Server**: Standard protocol for AI agent integration
+- **Rich Metadata**: Includes code changes, review comments, and issue tracking
 
-### 🏗️ Professional Architecture
-- **Global Tool Installation**: Install once, use everywhere (like git, docker)
-- **Project-Based Configuration**: Clean, non-contaminating setup per project
-- **Enterprise Security**: Secure credential management with audit logging
-- **Type-Safe Operations**: Built with Python 3.13 and strict type checking
+### 🏗️ Reliable Architecture
+- **Global Installation**: Install once, use in any project (like git or docker)
+- **Zero Contamination**: Never modifies your project files or directories
+- **Comprehensive Testing**: Full test suite with property-based testing
+- **Type Safety**: Built with Python 3.13 and strict type checking
 
 ## 📋 Requirements
 

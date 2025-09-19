@@ -570,7 +570,7 @@ class TestCLICommands:
         """Test main CLI group help."""
         result = cli_runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "DevHub - Transform Claude Code" in result.output
+        assert "DevHub - Development platform integration" in result.output
         assert "Commands:" in result.output
 
     def test_cli_version_flag(self, cli_runner: CliRunner) -> None:

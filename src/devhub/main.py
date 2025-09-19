@@ -1,17 +1,38 @@
 #!/usr/bin/env python3
-"""DevHub CLI: Fetch Jira ticket details, related GitHub PR info, git diff, and unresolved PR comments.
+"""DevHub main module for development platform integration.
 
-Bundle them into a single folder using functional programming principles.
+This module provides the core functionality for bundling project context from multiple
+sources including GitHub, GitLab, Jira, and local git repositories. It creates structured
+outputs suitable for AI-assisted development workflows.
+
+The implementation follows functional programming principles with immutable data structures,
+explicit error handling using Result types, and pure functions for reliable operation.
+
+Key Functions:
+    bundle_command: Main entry point for creating project context bundles
+    fetch_jira_issue: Retrieve Jira issue details with full context
+    fetch_pr_details: Get GitHub PR information including metadata
+    get_repository_info: Extract git repository information
+    update_jira_issue: Update Jira issue fields programmatically
+
+Data Models:
+    All models use frozen dataclasses for immutability:
+    - JiraIssue: Complete Jira issue representation
+    - Repository: Git repository metadata
+    - PullRequest: GitHub PR details
+    - BundleData: Aggregated context for export
 
 Dependencies:
-- Python 3.13+
-- gh (GitHub CLI) installed and authenticated for GitHub operations
-- git (for repository checks)
+    - Python 3.13+: Required for modern type system features
+    - GitHub CLI (gh): Must be installed and authenticated
+    - Git: Required for repository operations
+    - Jira API: Optional, configured via environment variables
 
-Optional environment variables for Jira:
-- JIRA_BASE_URL  (e.g., https://your-domain.atlassian.net)
-- JIRA_EMAIL     (e.g., your.email@company.com)
-- JIRA_API_TOKEN (Jira API token)
+Configuration:
+    Environment variables for optional Jira integration:
+    - JIRA_BASE_URL: Your Jira instance (https://company.atlassian.net)
+    - JIRA_EMAIL: Your Jira account email
+    - JIRA_API_TOKEN: API token from Jira account settings
 """
 
 import argparse
@@ -1670,7 +1691,25 @@ def _write_bundle_json(
 
 
 def handle_bundle_command(args: argparse.Namespace) -> Result[str, str]:
-    """Handle bundle command."""
+    """Create a comprehensive project context bundle.
+
+    Aggregates project information from multiple sources including git repository,
+    GitHub/GitLab pull requests, Jira issues, and code changes. Creates a structured
+    output directory with organized files for AI-assisted development workflows.
+
+    Args:
+        args: Command-line arguments containing bundle configuration options
+              such as Jira keys, PR numbers, and output preferences.
+
+    Returns:
+        Result containing the output directory path on success, or error message on failure.
+
+    The bundle includes:
+        - Jira issue details (if configured and issue found)
+        - Pull request information and diff (if PR detected/specified)
+        - Unresolved review comments (if PR has comments)
+        - Project metadata and repository information
+    """
     # Set up configuration
     devhub_config, bundle_config = _setup_bundle_config(args)
 

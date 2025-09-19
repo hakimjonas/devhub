@@ -47,7 +47,7 @@ class TestDevHubCLIIntegration:
         """Test that CLI help works."""
         result = cli_runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "DevHub - Transform Claude Code" in result.output
+        assert "DevHub - Development platform integration" in result.output
         assert "Commands:" in result.output
         assert "doctor" in result.output
         assert "bundle" in result.output
@@ -286,7 +286,7 @@ class TestDevHubCLIIntegration:
                 ["uv", "run", "devhub", "--help"], check=False, capture_output=True, text=True, timeout=30
             )
             assert result.returncode == 0
-            assert "DevHub - Transform Claude Code" in result.stdout
+            assert "DevHub - Development platform integration" in result.stdout
 
             # Test doctor command
             result = subprocess.run(
