@@ -35,15 +35,20 @@ jobs:
       
     - name: Install dependencies
       run: uv sync --all-extras --dev
-      
+
+    - name: Run linting and formatting (CLAUDE.md requirement)
+      run: |
+        uv run ruff check .
+        uv run ruff format . --check
+
     - name: Run pre-commit checks
       run: uv run pre-commit run --all-files
       if: matrix.os == 'ubuntu-latest'
       
-    - name: Run type checking
+    - name: Run type checking (CLAUDE.md requirement)
       run: |
-        uv run mypy src/devhub
-        uv run pyright src/devhub
+        uv run mypy .
+        uv run pyright .
         
     - name: Run security checks
       run: |
@@ -51,8 +56,8 @@ jobs:
         uv run safety check
       if: matrix.os == 'ubuntu-latest'
         
-    - name: Run tests with coverage
-      run: uv run pytest --cov=devhub --cov-report=xml --cov-report=term-missing
+    - name: Run tests with coverage (CLAUDE.md requirement)
+      run: uv run pytest --cov=devhub --cov-report=xml --cov-report=term-missing --cov-fail-under=90
       
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
