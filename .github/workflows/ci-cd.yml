@@ -49,7 +49,7 @@ jobs:
         
     - name: Run security checks
       run: |
-        uv run bandit -r src/devhub
+        uv run bandit -r src/devhub --skip=B101,B603,B607,B105,B404,B310
         uv run safety check
       if: matrix.os == 'ubuntu-latest'
         

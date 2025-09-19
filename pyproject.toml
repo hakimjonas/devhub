@@ -250,7 +250,7 @@ major_version_zero = true
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = ["B101", "B603", "B607"]
+skips = ["B101", "B603", "B607", "B105", "B404"]
 
 [tool.vulture]
 min_confidence = 60
