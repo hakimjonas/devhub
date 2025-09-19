@@ -1254,6 +1254,9 @@ def cli() -> None:
     DevHub enhances your Claude Code interactions by providing rich project
     context from GitHub, GitLab, Jira, and your local repository.
 
+    🔧 MCP Integration: DevHub provides Model Context Protocol tools for Claude!
+    Run 'devhub claude mcp' to see available tools and setup instructions.
+
     Examples:
       # Initialize DevHub with guided wizard
       devhub init
@@ -1263,6 +1266,9 @@ def cli() -> None:
 
       # Generate Claude context from any project
       devhub claude context
+
+      # Show MCP tools for Claude Desktop
+      devhub claude mcp
 
       # Bundle PR for review
       devhub bundle --pr 123
@@ -1432,6 +1438,34 @@ def claude() -> None:
 
 
 @claude.command()
+def mcp() -> None:
+    """Show MCP (Model Context Protocol) tools available for Claude."""
+    click.echo("🔧 DevHub MCP Tools for Claude")
+    click.echo("")
+    click.echo("Available MCP tools when devhub is configured in Claude Desktop:")
+    click.echo("")
+    click.echo("📖 READ OPERATIONS:")
+    click.echo("  • get-bundle-context        Get comprehensive project context")
+    click.echo("  • get-jira-issue           Fetch specific Jira issue details")
+    click.echo("  • get-pr-details           Fetch GitHub PR information")
+    click.echo("  • get-pr-comments          Fetch unresolved PR review comments")
+    click.echo("  • get-current-branch-context  Auto-detect context from current branch")
+    click.echo("")
+    click.echo("✏️  WRITE OPERATIONS:")
+    click.echo("  • update-jira-issue        Update Jira issue fields (summary, description)")
+    click.echo("")
+    click.echo("💡 TIP: Use 'get-current-branch-context' to automatically detect")
+    click.echo("   what you're working on from your git branch!")
+    click.echo("")
+    click.echo("📋 To configure in Claude Desktop, add to config.json:")
+    click.echo('   "mcpServers": {')
+    click.echo('     "devhub": {')
+    click.echo('       "command": "devhub-mcp"')
+    click.echo("     }")
+    click.echo("   }")
+
+
+@claude.command()
 def context() -> None:
     """Generate enhanced context for Claude Code."""
 
@@ -1572,23 +1606,35 @@ def bundle(
 
 @cli.command("project-status")
 def project_status() -> None:
-    """Show DevHub status and project detection."""
+    """Show project-level DevHub status and repository detection."""
     cwd = Path.cwd()
 
     click.echo("🔍 DevHub Status\n")
 
-    # Check global config
-    if GLOBAL_CONFIG.exists():
-        click.echo(f"✅ Global config: {GLOBAL_CONFIG}")
-    else:
-        click.echo("❌ No global config (run: devhub init)")
-
-    # Check project config
+    # Check project config (primary configuration method)
     project_config = cwd / ".devhub.yaml"
     if project_config.exists():
         click.echo(f"✅ Project config: {project_config}")
+        try:
+            with project_config.open() as f:
+                config_data = yaml.safe_load(f) or {}
+
+            # Show enabled platforms
+            enabled_platforms = []
+            if config_data.get("github", {}).get("enabled"):
+                enabled_platforms.append("GitHub")
+            if config_data.get("gitlab", {}).get("enabled"):
+                enabled_platforms.append("GitLab")
+            if config_data.get("jira", {}).get("enabled"):
+                enabled_platforms.append("Jira")
+
+            if enabled_platforms:
+                click.echo(f"  → Platforms: {', '.join(enabled_platforms)}")
+        except (yaml.YAMLError, OSError, KeyError) as e:
+            click.echo(f"  → Configuration file exists but could not be parsed: {e}")
     else:
-        click.echo("i No project config (optional)")
+        click.echo("📝 No project config found")
+        click.echo("   Run 'devhub init' to set up project-specific configuration")
 
     # Detect repository
     click.echo("\n📁 Project Detection:")
@@ -1702,19 +1748,17 @@ def doctor(fix: bool, verbose: bool) -> None:
 
     # Check DevHub configuration
     total_checks += 1
-    config_exists = (Path.cwd() / ".devhub.yaml").exists() or GLOBAL_CONFIG.exists()
-    if config_exists:
-        click.echo("✅ DevHub configuration found")
+    project_config = Path.cwd() / ".devhub.yaml"
+    if project_config.exists():
+        click.echo("✅ DevHub project configuration found")
         checks_passed += 1
 
         if verbose:
-            if (Path.cwd() / ".devhub.yaml").exists():
-                click.echo("   Project config: .devhub.yaml")
-            if GLOBAL_CONFIG.exists():
-                click.echo(f"   Global config: {GLOBAL_CONFIG}")
+            click.echo("   Project config: .devhub.yaml")
     else:
-        click.echo("⚠️  No DevHub configuration found")
-        issues_found.append(("config", "No DevHub configuration - run 'devhub init'"))
+        click.echo("📝 No project configuration found")
+        if verbose:
+            click.echo("   Run 'devhub init' to set up project-specific configuration")
 
     # Check authentication
     total_checks += 1

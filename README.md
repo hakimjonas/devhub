@@ -166,13 +166,16 @@ DevHub can be used as an MCP (Model Context Protocol) server for AI agents like 
 ### MCP Server Commands
 
 ```bash
+# Show available MCP tools and setup instructions
+devhub claude mcp
+
 # Show help and available options
 devhub-mcp --help
 
 # List available MCP tools
 devhub-mcp --tools
 
-# Test MCP server functionality  
+# Test MCP server functionality
 devhub-mcp --test
 
 # Run as MCP server (default mode)
@@ -204,11 +207,15 @@ Add DevHub to your Claude Desktop configuration (`~/.config/claude-desktop/claud
 
 When connected as an MCP server, DevHub provides these tools to AI agents:
 
+**📖 READ OPERATIONS:**
 - **`get-bundle-context`** - Comprehensive bundle with Jira issue, PR details, diff, and comments
-- **`get-jira-issue`** - Fetch specific Jira issue details  
+- **`get-jira-issue`** - Fetch specific Jira issue details
 - **`get-pr-details`** - Fetch GitHub PR information with optional diff
 - **`get-pr-comments`** - Fetch unresolved PR review comments
 - **`get-current-branch-context`** - Auto-detect and get context for current git branch
+
+**✏️ WRITE OPERATIONS:**
+- **`update-jira-issue`** - Update Jira issue fields (summary, description)
 
 ### MCP Usage Examples
 
