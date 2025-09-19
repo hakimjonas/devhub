@@ -9,11 +9,11 @@ This module provides a complete testing framework including:
 - Chaos engineering for resilience testing
 
 Classes:
-    TestStrategy: Enumeration of testing strategies
+    TestingStrategy: Enumeration of testing strategies
     PerformanceMetrics: Immutable performance measurement results
     ContractTest: Contract testing specification
-    MutationTestResult: Mutation testing results
-    TestSuite: Comprehensive test suite configuration
+    MutationTestingResult: Mutation testing results
+    TestingSuite: Comprehensive test suite configuration
     AdvancedTestRunner: Main test execution engine
 """
 
@@ -64,7 +64,7 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
-class TestStrategy(Enum):
+class TestingStrategy(Enum):
     """Testing strategy enumeration."""
 
     UNIT = "unit"
@@ -79,7 +79,7 @@ class TestStrategy(Enum):
     SMOKE = "smoke"
 
 
-class TestResult(Enum):
+class TestingResult(Enum):
     """Test result enumeration."""
 
     PASSED = "passed"
@@ -150,7 +150,7 @@ class ContractTest:
 
 
 @dataclass(frozen=True, slots=True)
-class MutationTestResult:
+class MutationTestingResult:
     """Mutation testing results.
 
     Attributes:
@@ -168,14 +168,14 @@ class MutationTestResult:
     original_code: str
     mutated_code: str
     mutation_type: str
-    test_results: dict[str, TestResult] = field(default_factory=dict)
+    test_results: dict[str, TestingResult] = field(default_factory=dict)
     killed: bool = False
     execution_time: float = 0.0
     error_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class TestExecution:
+class TestingExecution:
     """Immutable test execution result.
 
     Attributes:
@@ -190,8 +190,8 @@ class TestExecution:
     """
 
     test_name: str
-    strategy: TestStrategy
-    result: TestResult
+    strategy: TestingStrategy
+    result: TestingResult
     execution_time: float = 0.0
     error_message: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -200,7 +200,7 @@ class TestExecution:
 
 
 @dataclass(frozen=True, slots=True)
-class TestSuite:
+class TestingSuite:
     """Comprehensive test suite configuration.
 
     Attributes:
@@ -215,8 +215,8 @@ class TestSuite:
     """
 
     name: str
-    enabled_strategies: frozenset[TestStrategy] = field(
-        default_factory=lambda: frozenset([TestStrategy.UNIT, TestStrategy.INTEGRATION])
+    enabled_strategies: frozenset[TestingStrategy] = field(
+        default_factory=lambda: frozenset([TestingStrategy.UNIT, TestingStrategy.INTEGRATION])
     )
     performance_thresholds: dict[str, float] = field(default_factory=dict)
     timeout_seconds: float = 300.0
@@ -263,7 +263,7 @@ class PerformanceTestExecutor:
         """Handle successful execution with FP pipeline."""
         metrics = self._create_performance_metrics(execution_data, success=True)
         threshold_violations = self._check_thresholds(metrics)
-        test_result = TestResult.FAILED if threshold_violations else TestResult.PASSED
+        test_result = TestingResult.FAILED if threshold_violations else TestingResult.PASSED
         error_message = "; ".join(threshold_violations) if threshold_violations else None
 
         execution = self._create_test_execution(
@@ -272,7 +272,7 @@ class PerformanceTestExecutor:
 
         self.test_runner.add_test_result(execution)
 
-        if self.baseline_file and test_result == TestResult.PASSED:
+        if self.baseline_file and test_result == TestingResult.PASSED:
             self.test_runner.store_performance_baseline(test_name, metrics, self.baseline_file)
 
         if threshold_violations:
@@ -282,7 +282,7 @@ class PerformanceTestExecutor:
     def _handle_failed_execution(self, test_name: str, execution_time: float, error: Exception) -> None:
         """Handle failed execution."""
         metrics = self._create_performance_metrics({"execution_time": execution_time, "memory_usage": 0}, success=False)
-        execution = self._create_test_execution(test_name, TestResult.ERROR, execution_time, str(error), metrics)
+        execution = self._create_test_execution(test_name, TestingResult.ERROR, execution_time, str(error), metrics)
 
         self.test_runner.add_test_result(execution)
 
@@ -308,15 +308,15 @@ class PerformanceTestExecutor:
     def _create_test_execution(
         self,
         test_name: str,
-        result: TestResult,
+        result: TestingResult,
         execution_time: float,
         error_message: str | None,
         metrics: PerformanceMetrics,
-    ) -> TestExecution:
+    ) -> TestingExecution:
         """Create test execution record."""
-        return TestExecution(
+        return TestingExecution(
             test_name=test_name,
-            strategy=TestStrategy.PERFORMANCE,
+            strategy=TestingStrategy.PERFORMANCE,
             result=result,
             execution_time=execution_time,
             error_message=error_message,
@@ -335,25 +335,25 @@ class AdvancedTestRunner:
     - Continuous testing and monitoring
 
     Example:
-        >>> suite = TestSuite("api_tests", {TestStrategy.UNIT, TestStrategy.PERFORMANCE})
+        >>> suite = TestingSuite("api_tests", {TestingStrategy.UNIT, TestingStrategy.PERFORMANCE})
         >>> runner = AdvancedTestRunner(suite)
-        >>> runner.register_test_function(my_test_function, TestStrategy.UNIT)
+        >>> runner.register_test_function(my_test_function, TestingStrategy.UNIT)
         >>> results = runner.run_all_tests()
         >>> print(f"Success rate: {runner.get_success_rate()}%")
     """
 
-    def __init__(self, test_suite: TestSuite) -> None:
+    def __init__(self, test_suite: TestingSuite) -> None:
         """Initialize advanced test runner with configuration."""
         self._suite = test_suite
-        self._test_functions: dict[TestStrategy, list[Callable[..., Any]]] = defaultdict(list)
-        self._test_results: list[TestExecution] = []
+        self._test_functions: dict[TestingStrategy, list[Callable[..., Any]]] = defaultdict(list)
+        self._test_results: list[TestingExecution] = []
         self._performance_baselines: dict[str, PerformanceMetrics] = {}
         self._contract_tests: dict[str, ContractTest] = {}
-        self._mutation_results: dict[str, MutationTestResult] = {}
+        self._mutation_results: dict[str, MutationTestingResult] = {}
         self._lock = RLock()
 
     def register_test_function(
-        self, test_function: Callable[..., Any], strategy: TestStrategy, **metadata: str | float | bool | None
+        self, test_function: Callable[..., Any], strategy: TestingStrategy, **metadata: str | float | bool | None
     ) -> Result[None, str]:
         """Register a test function for execution.
 
@@ -457,10 +457,10 @@ class AdvancedTestRunner:
                 # Skip property tests if Hypothesis not available
                 @functools.wraps(func)
                 def skip_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-                    execution = TestExecution(
+                    execution = TestingExecution(
                         test_name=f"{func.__module__}.{func.__name__}",
-                        strategy=TestStrategy.PROPERTY_BASED,
-                        result=TestResult.SKIPPED,
+                        strategy=TestingStrategy.PROPERTY_BASED,
+                        result=TestingResult.SKIPPED,
                         error_message="Hypothesis not available",
                     )
                     with self._lock:
@@ -480,10 +480,10 @@ class AdvancedTestRunner:
                     result = hypothesis_func(*args, **kwargs)
 
                     execution_time = time.time() - start_time
-                    execution = TestExecution(
+                    execution = TestingExecution(
                         test_name=test_name,
-                        strategy=TestStrategy.PROPERTY_BASED,
-                        result=TestResult.PASSED,
+                        strategy=TestingStrategy.PROPERTY_BASED,
+                        result=TestingResult.PASSED,
                         execution_time=execution_time,
                     )
 
@@ -494,10 +494,10 @@ class AdvancedTestRunner:
 
                 except Exception as e:
                     execution_time = time.time() - start_time
-                    execution = TestExecution(
+                    execution = TestingExecution(
                         test_name=test_name,
-                        strategy=TestStrategy.PROPERTY_BASED,
-                        result=TestResult.FAILED,
+                        strategy=TestingStrategy.PROPERTY_BASED,
+                        result=TestingResult.FAILED,
                         execution_time=execution_time,
                         error_message=str(e),
                     )
@@ -542,10 +542,10 @@ class AdvancedTestRunner:
                     result = func(*args, **kwargs)
 
                     execution_time = time.time() - start_time
-                    execution = TestExecution(
+                    execution = TestingExecution(
                         test_name=test_name,
-                        strategy=TestStrategy.CONTRACT,
-                        result=TestResult.PASSED,
+                        strategy=TestingStrategy.CONTRACT,
+                        result=TestingResult.PASSED,
                         execution_time=execution_time,
                         metadata={"contract_version": contract.version},
                     )
@@ -556,10 +556,10 @@ class AdvancedTestRunner:
 
                 except Exception as e:
                     execution_time = time.time() - start_time
-                    execution = TestExecution(
+                    execution = TestingExecution(
                         test_name=test_name,
-                        strategy=TestStrategy.CONTRACT,
-                        result=TestResult.FAILED,
+                        strategy=TestingStrategy.CONTRACT,
+                        result=TestingResult.FAILED,
                         execution_time=execution_time,
                         error_message=str(e),
                         metadata={"contract_version": contract.version},
@@ -576,7 +576,7 @@ class AdvancedTestRunner:
 
         return decorator
 
-    def run_all_tests(self) -> Result[list[TestExecution], str]:
+    def run_all_tests(self) -> Result[list[TestingExecution], str]:
         """Run all registered tests across all enabled strategies.
 
         Returns:
@@ -597,10 +597,10 @@ class AdvancedTestRunner:
                             # Record successful execution if not already recorded
                             test_name = f"{test_func.__module__}.{test_func.__name__}"
                             if not any(r.test_name == test_name for r in self._test_results):
-                                execution = TestExecution(
+                                execution = TestingExecution(
                                     test_name=test_name,
                                     strategy=strategy,
-                                    result=TestResult.PASSED,
+                                    result=TestingResult.PASSED,
                                     execution_time=execution_time,
                                 )
                                 self._test_results.append(execution)
@@ -609,10 +609,10 @@ class AdvancedTestRunner:
                             execution_time = time.time() - start_time
                             test_name = f"{test_func.__module__}.{test_func.__name__}"
 
-                            execution = TestExecution(
+                            execution = TestingExecution(
                                 test_name=test_name,
                                 strategy=strategy,
-                                result=TestResult.FAILED,
+                                result=TestingResult.FAILED,
                                 execution_time=execution_time,
                                 error_message=str(e),
                             )
@@ -626,7 +626,7 @@ class AdvancedTestRunner:
         except (RuntimeError, ValueError, TypeError) as e:
             return Failure(f"Test execution failed: {e}")
 
-    def run_mutation_tests(self, source_file: Path) -> Result[list[MutationTestResult], str]:
+    def run_mutation_tests(self, source_file: Path) -> Result[list[MutationTestingResult], str]:
         """Run mutation testing on source file.
 
         Args:
@@ -677,7 +677,7 @@ class AdvancedTestRunner:
             if not self._test_results:
                 return 0.0
 
-            passed_count = sum(1 for r in self._test_results if r.result == TestResult.PASSED)
+            passed_count = sum(1 for r in self._test_results if r.result == TestingResult.PASSED)
             return (passed_count / len(self._test_results)) * 100
 
     def get_performance_summary(self) -> dict[str, Any]:
@@ -688,7 +688,7 @@ class AdvancedTestRunner:
         """
         with self._lock:
             performance_tests = [
-                r for r in self._test_results if r.strategy == TestStrategy.PERFORMANCE and r.performance_metrics
+                r for r in self._test_results if r.strategy == TestingStrategy.PERFORMANCE and r.performance_metrics
             ]
 
             if not performance_tests:
@@ -707,7 +707,7 @@ class AdvancedTestRunner:
                 "total_tests": len(performance_tests),
                 "average_execution_time": total_time / len(performance_tests),
                 "average_memory_usage": total_memory / len(performance_tests),
-                "success_rate": sum(1 for r in performance_tests if r.result == TestResult.PASSED)
+                "success_rate": sum(1 for r in performance_tests if r.result == TestingResult.PASSED)
                 / len(performance_tests)
                 * 100,
             }
@@ -778,7 +778,7 @@ class AdvancedTestRunner:
                 pass
         return 0.0
 
-    def add_test_result(self, execution: TestExecution) -> None:
+    def add_test_result(self, execution: TestingExecution) -> None:
         """Add a test execution result to the results list.
 
         Args:
@@ -833,7 +833,7 @@ class AdvancedTestRunner:
 
         return mutations[:10]  # Limit mutations for testing
 
-    def _test_mutation(self, mutation: dict[str, Any], _source_file: Path) -> MutationTestResult:
+    def _test_mutation(self, mutation: dict[str, Any], _source_file: Path) -> MutationTestingResult:
         """Test a specific mutation."""
         # This is a simplified implementation
         # A real mutation testing framework would:
@@ -841,7 +841,7 @@ class AdvancedTestRunner:
         # 2. Run the test suite against the mutated code
         # 3. Determine if the mutation was "killed" by failing tests
 
-        return MutationTestResult(
+        return MutationTestingResult(
             mutation_id=mutation["id"],
             original_code=mutation["original"],
             mutated_code=mutation["mutated"],
@@ -881,7 +881,7 @@ class AdvancedTestRunner:
 _global_runner: AdvancedTestRunner | None = None
 
 
-def get_global_runner(suite: TestSuite | None = None) -> AdvancedTestRunner:
+def get_global_runner(suite: TestingSuite | None = None) -> AdvancedTestRunner:
     """Get the global test runner instance.
 
     Args:
@@ -891,7 +891,7 @@ def get_global_runner(suite: TestSuite | None = None) -> AdvancedTestRunner:
         Global AdvancedTestRunner instance
     """
     if _global_runner is None:
-        default_suite = suite or TestSuite("default_suite")
+        default_suite = suite or TestingSuite("default_suite")
         globals()["_global_runner"] = AdvancedTestRunner(default_suite)
     assert _global_runner is not None  # Help mypy understand this is not None
     return _global_runner

@@ -262,10 +262,29 @@ class SecureVault:
         if self._config.backend == VaultBackend.FILE_SYSTEM:
             self._config.vault_dir.mkdir(parents=True, exist_ok=True)
             self._config.vault_dir.chmod(0o700)  # Owner read/write/execute only
+            # Load existing vault metadata on startup
+            self._load_vault_metadata_sync()
 
         # Ensure audit directory exists
         if self._config.audit_enabled:
             self._config.audit_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def _load_vault_metadata_sync(self) -> None:
+        """Load vault metadata synchronously on initialization."""
+        try:
+            if self._config.backend == VaultBackend.FILE_SYSTEM:
+                vault_file = self._config.vault_dir / "credentials.json"
+                if vault_file.exists():
+                    with vault_file.open(encoding="utf-8") as f:
+                        content = f.read()
+                        data = json.loads(content)
+                    # Load vault metadata (including password hash)
+                    vault_metadata = data.get("vault_metadata", {})
+                    if "password_hash" in vault_metadata:
+                        self._password_hash = base64.b64decode(vault_metadata["password_hash"])
+        except (OSError, ValueError, RuntimeError):
+            # Silently ignore errors during metadata loading
+            pass
 
     async def initialize(self, master_password: str) -> Result[None, str]:
         """Initialize vault with master password.
@@ -497,6 +516,55 @@ class SecureVault:
 
         return Success(None)
 
+    async def _ensure_credentials_loaded(self) -> Result[None, str]:
+        """Ensure credentials are loaded if vault is unlocked."""
+        if not self._credentials:
+            load_result = await self._load_credentials()
+            if isinstance(load_result, Failure):
+                return Failure(f"Failed to load credentials: {load_result.failure()}")
+        return Success(None)
+
+    def _decrypt_credential_safely(self, encrypted_credential: EncryptedCredential) -> Result[str, str]:
+        """Safely decrypt credential data."""
+        try:
+            assert self._cipher is not None  # Validated by _check_vault_state()
+            decrypted_data = self._cipher.decrypt(encrypted_credential.encrypted_data)
+            return Success(decrypted_data.decode("utf-8", errors="ignore"))
+        except (OSError, ValueError, RuntimeError) as e:
+            return Failure(f"Failed to decrypt credential: {e}")
+
+    def _update_credential_access(self, name: str, encrypted_credential: EncryptedCredential) -> None:
+        """Update credential access metadata."""
+        updated_metadata = encrypted_credential.metadata.with_access()
+        updated_credential = EncryptedCredential(
+            metadata=updated_metadata,
+            encrypted_data=encrypted_credential.encrypted_data,
+            salt=encrypted_credential.salt,
+            nonce=encrypted_credential.nonce,
+            checksum=encrypted_credential.checksum,
+        )
+        self._credentials[name] = updated_credential
+        self._last_activity = time.time()
+
+    async def _process_credential_access(
+        self, name: str, encrypted_credential: EncryptedCredential
+    ) -> Result[str, str]:
+        """Process credential access, decrypt, and update metadata."""
+        decrypt_result = self._decrypt_credential_safely(encrypted_credential)
+        if isinstance(decrypt_result, Failure):
+            await self._audit_log(
+                "credential_access_failed", credential_name=name, success=False, error_message=decrypt_result.failure()
+            )
+            return decrypt_result
+
+        credential_text = decrypt_result.unwrap()
+
+        # Update access metadata and log success
+        self._update_credential_access(name, encrypted_credential)
+        await self._audit_log("credential_accessed", credential_name=name, success=True)
+
+        return Success(credential_text)
+
     async def get_credential(self, name: str) -> Result[str, str]:
         """Retrieve and decrypt credential from vault.
 
@@ -506,41 +574,28 @@ class SecureVault:
         Returns:
             Success with decrypted credential data, Failure with error message
         """
-        # Validate vault state and get credential
-        vault_check = self._check_vault_state()
-        if isinstance(vault_check, Failure):
-            return vault_check
+        # Validation pipeline
+        validation_steps = [
+            self._check_vault_state(),
+            await self._ensure_credentials_loaded(),
+            await self._get_and_validate_credential(name),
+        ]
 
-        credential_check = await self._get_and_validate_credential(name)
-        if isinstance(credential_check, Failure):
-            return credential_check
+        # Check each validation step
+        for step in validation_steps[:-1]:  # All but the last which contains data
+            if isinstance(step, Failure):
+                return step
 
-        encrypted_credential = credential_check.unwrap()
+        # Last step contains the credential data
+        credential_result = validation_steps[-1]
+        if isinstance(credential_result, Failure):
+            return credential_result
 
-        try:
-            # Decrypt and process credential
-            assert self._cipher is not None  # Validated by _check_vault_state()
-            decrypted_data = self._cipher.decrypt(encrypted_credential.encrypted_data)
-            credential_text = decrypted_data.decode("utf-8", errors="ignore")
+        encrypted_credential = credential_result.unwrap()
+        assert encrypted_credential is not None  # Type guard
 
-            # Update access metadata
-            updated_metadata = encrypted_credential.metadata.with_access()
-            updated_credential = EncryptedCredential(
-                metadata=updated_metadata,
-                encrypted_data=encrypted_credential.encrypted_data,
-                salt=encrypted_credential.salt,
-                nonce=encrypted_credential.nonce,
-                checksum=encrypted_credential.checksum,
-            )
-            self._credentials[name] = updated_credential
-            self._last_activity = time.time()
-
-        except (OSError, ValueError, RuntimeError) as e:
-            await self._audit_log("credential_access_failed", credential_name=name, success=False, error_message=str(e))
-            return Failure(f"Failed to retrieve credential: {e}")
-        else:
-            await self._audit_log("credential_accessed", credential_name=name, success=True)
-            return Success(credential_text)
+        # Process the credential access
+        return await self._process_credential_access(name, encrypted_credential)
 
     def _check_vault_state(self) -> Result[None, str]:
         """Check if vault is properly initialized and unlocked."""
@@ -695,7 +750,17 @@ class SecureVault:
                         content = await f.read()
                         data = json.loads(content)
 
-                    for name, cred_data in data.items():
+                    # Load vault metadata (including password hash)
+                    vault_metadata = data.get("vault_metadata", {})
+                    if "password_hash" in vault_metadata:
+                        self._password_hash = base64.b64decode(vault_metadata["password_hash"])
+
+                    # Load credentials
+                    credentials_data = data.get("credentials", data)  # Backward compatibility
+                    for name, cred_data in credentials_data.items():
+                        # Skip vault_metadata if it's mixed in with credentials
+                        if name == "vault_metadata":
+                            continue
                         # Convert credential_type string back to enum
                         metadata_dict = cred_data["metadata"].copy()
                         metadata_dict["credential_type"] = CredentialType(metadata_dict["credential_type"])
@@ -721,9 +786,17 @@ class SecureVault:
                 vault_file = self._config.vault_dir / "credentials.json"
 
                 # Prepare data for serialization
-                data = {}
+                data: dict[str, Any] = {
+                    "vault_metadata": {
+                        "password_hash": base64.b64encode(self._password_hash).decode()
+                        if self._password_hash
+                        else None,
+                        "version": "1.0",
+                    },
+                    "credentials": {},
+                }
                 for name, cred in self._credentials.items():
-                    data[name] = {
+                    data["credentials"][name] = {
                         "metadata": {
                             "name": cred.metadata.name,
                             "credential_type": cred.metadata.credential_type.value,

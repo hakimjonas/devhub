@@ -15,10 +15,10 @@ from returns.result import Success
 from devhub.testing_framework import AdvancedTestRunner
 from devhub.testing_framework import ContractTest
 from devhub.testing_framework import PerformanceMetrics
-from devhub.testing_framework import TestExecution
-from devhub.testing_framework import TestResult
-from devhub.testing_framework import TestStrategy
-from devhub.testing_framework import TestSuite
+from devhub.testing_framework import TestingExecution
+from devhub.testing_framework import TestingResult
+from devhub.testing_framework import TestingStrategy
+from devhub.testing_framework import TestingSuite
 from devhub.testing_framework import get_global_runner
 from devhub.testing_framework import reset_global_runner
 
@@ -102,54 +102,54 @@ class TestContractTest:
         assert contract.version == "2.0.0"
 
 
-class TestTestExecution:
+class TestTestingExecution:
     """Test test execution results."""
 
     def test_test_execution_creation(self) -> None:
         """Test test execution creation."""
-        execution = TestExecution(
+        execution = TestingExecution(
             test_name="test_user_creation",
-            strategy=TestStrategy.UNIT,
-            result=TestResult.PASSED,
+            strategy=TestingStrategy.UNIT,
+            result=TestingResult.PASSED,
             execution_time=0.5,
         )
         assert execution.test_name == "test_user_creation"
-        assert execution.strategy == TestStrategy.UNIT
-        assert execution.result == TestResult.PASSED
+        assert execution.strategy == TestingStrategy.UNIT
+        assert execution.result == TestingResult.PASSED
         assert execution.execution_time == 0.5
         assert execution.error_message is None
 
     def test_test_execution_with_error(self) -> None:
         """Test test execution with error."""
-        execution = TestExecution(
+        execution = TestingExecution(
             test_name="test_failing",
-            strategy=TestStrategy.INTEGRATION,
-            result=TestResult.FAILED,
+            strategy=TestingStrategy.INTEGRATION,
+            result=TestingResult.FAILED,
             execution_time=1.0,
             error_message="Assertion failed",
             metadata={"retry_count": 3},
         )
-        assert execution.result == TestResult.FAILED
+        assert execution.result == TestingResult.FAILED
         assert execution.error_message == "Assertion failed"
         assert execution.metadata["retry_count"] == 3
 
 
-class TestTestSuite:
+class TestTestingSuite:
     """Test test suite configuration."""
 
     def test_default_test_suite(self) -> None:
         """Test default test suite configuration."""
-        suite = TestSuite("default_suite")
+        suite = TestingSuite("default_suite")
         assert suite.name == "default_suite"
-        assert TestStrategy.UNIT in suite.enabled_strategies
-        assert TestStrategy.INTEGRATION in suite.enabled_strategies
+        assert TestingStrategy.UNIT in suite.enabled_strategies
+        assert TestingStrategy.INTEGRATION in suite.enabled_strategies
         assert suite.timeout_seconds == 300.0
         assert suite.parallel_execution is True
 
     def test_custom_test_suite(self) -> None:
         """Test custom test suite configuration."""
-        strategies = frozenset([TestStrategy.PERFORMANCE, TestStrategy.CONTRACT])
-        suite = TestSuite(
+        strategies = frozenset([TestingStrategy.PERFORMANCE, TestingStrategy.CONTRACT])
+        suite = TestingSuite(
             name="performance_suite",
             enabled_strategies=strategies,
             timeout_seconds=600.0,
@@ -164,21 +164,21 @@ class TestAdvancedTestRunner:
     """Test advanced test runner functionality."""
 
     @pytest.fixture
-    def test_suite(self) -> TestSuite:
+    def test_suite(self) -> TestingSuite:
         """Create test suite for testing."""
-        return TestSuite(
+        return TestingSuite(
             "test_suite",
             enabled_strategies=frozenset(
                 [
-                    TestStrategy.UNIT,
-                    TestStrategy.PERFORMANCE,
-                    TestStrategy.CONTRACT,
+                    TestingStrategy.UNIT,
+                    TestingStrategy.PERFORMANCE,
+                    TestingStrategy.CONTRACT,
                 ]
             ),
         )
 
     @pytest.fixture
-    def test_runner(self, test_suite: TestSuite) -> AdvancedTestRunner:
+    def test_runner(self, test_suite: TestingSuite) -> AdvancedTestRunner:
         """Create test runner for testing."""
         return AdvancedTestRunner(test_suite)
 
@@ -192,11 +192,11 @@ class TestAdvancedTestRunner:
         def sample_test() -> None:
             assert True
 
-        result = test_runner.register_test_function(sample_test, TestStrategy.UNIT)
+        result = test_runner.register_test_function(sample_test, TestingStrategy.UNIT)
         assert isinstance(result, Success)
 
         # Test registering with disabled strategy
-        result = test_runner.register_test_function(sample_test, TestStrategy.CHAOS)
+        result = test_runner.register_test_function(sample_test, TestingStrategy.CHAOS)
         assert isinstance(result, Failure)
         assert "not enabled" in str(result).lower()
 
@@ -254,8 +254,8 @@ class TestAdvancedTestRunner:
             msg = "Test failed"
             raise AssertionError(msg)
 
-        test_runner.register_test_function(unit_test, TestStrategy.UNIT)
-        test_runner.register_test_function(failing_test, TestStrategy.UNIT)
+        test_runner.register_test_function(unit_test, TestingStrategy.UNIT)
+        test_runner.register_test_function(failing_test, TestingStrategy.UNIT)
 
         result = test_runner.run_all_tests()
         assert isinstance(result, Success)
@@ -265,8 +265,8 @@ class TestAdvancedTestRunner:
 
         # Check that we have both passed and failed results
         results = [e.result for e in executions]
-        assert TestResult.PASSED in results
-        assert TestResult.FAILED in results
+        assert TestingResult.PASSED in results
+        assert TestingResult.FAILED in results
 
     def test_success_rate_calculation(self, test_runner: AdvancedTestRunner) -> None:
         """Test success rate calculation."""
@@ -275,9 +275,9 @@ class TestAdvancedTestRunner:
 
         # Add some test results manually for testing
         test_runner._test_results = [
-            TestExecution("test1", TestStrategy.UNIT, TestResult.PASSED),
-            TestExecution("test2", TestStrategy.UNIT, TestResult.PASSED),
-            TestExecution("test3", TestStrategy.UNIT, TestResult.FAILED),
+            TestingExecution("test1", TestingStrategy.UNIT, TestingResult.PASSED),
+            TestingExecution("test2", TestingStrategy.UNIT, TestingResult.PASSED),
+            TestingExecution("test3", TestingStrategy.UNIT, TestingResult.FAILED),
         ]
 
         # Should be 66.67% (2 out of 3 passed)
@@ -297,10 +297,10 @@ class TestAdvancedTestRunner:
             success_count=1,
         )
         test_runner._test_results = [
-            TestExecution(
+            TestingExecution(
                 "perf_test",
-                TestStrategy.PERFORMANCE,
-                TestResult.PASSED,
+                TestingStrategy.PERFORMANCE,
+                TestingResult.PASSED,
                 performance_metrics=metrics,
             )
         ]
@@ -317,12 +317,12 @@ class TestAdvancedTestRunner:
         assert test_runner.get_mutation_score() == 0.0
 
         # Add some mutation results manually
-        from devhub.testing_framework import MutationTestResult
+        from devhub.testing_framework import MutationTestingResult
 
         test_runner._mutation_results = {
-            "mut1": MutationTestResult("mut1", "==", "!=", "comparison", killed=True),
-            "mut2": MutationTestResult("mut2", "<", "<=", "comparison", killed=False),
-            "mut3": MutationTestResult("mut3", ">", ">=", "comparison", killed=True),
+            "mut1": MutationTestingResult("mut1", "==", "!=", "comparison", killed=True),
+            "mut2": MutationTestingResult("mut2", "<", "<=", "comparison", killed=False),
+            "mut3": MutationTestingResult("mut3", ">", ">=", "comparison", killed=True),
         }
 
         # Should be 66.67% (2 out of 3 killed)
@@ -333,8 +333,8 @@ class TestAdvancedTestRunner:
         """Test exporting test results."""
         # Add some test results
         test_runner._test_results = [
-            TestExecution("test1", TestStrategy.UNIT, TestResult.PASSED, execution_time=0.5),
-            TestExecution("test2", TestStrategy.UNIT, TestResult.FAILED, error_message="Failed"),
+            TestingExecution("test1", TestingStrategy.UNIT, TestingResult.PASSED, execution_time=0.5),
+            TestingExecution("test2", TestingStrategy.UNIT, TestingResult.FAILED, error_message="Failed"),
         ]
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -411,10 +411,10 @@ def compare_values(a, b):
         execution_time: float,
     ) -> None:
         """Property test for test execution recording."""
-        execution = TestExecution(
+        execution = TestingExecution(
             test_name=test_name,
-            strategy=TestStrategy.UNIT,
-            result=TestResult.PASSED,
+            strategy=TestingStrategy.UNIT,
+            result=TestingResult.PASSED,
             execution_time=execution_time,
         )
 
@@ -438,7 +438,7 @@ class TestGlobalTestRunner:
         """Test global runner with custom suite."""
         reset_global_runner()
 
-        custom_suite = TestSuite("custom", enabled_strategies=frozenset([TestStrategy.PERFORMANCE]))
+        custom_suite = TestingSuite("custom", enabled_strategies=frozenset([TestingStrategy.PERFORMANCE]))
         runner = get_global_runner(custom_suite)
         assert runner._suite.name == "custom"
 
@@ -456,13 +456,13 @@ class TestTestingFrameworkIntegration:
     def test_complete_testing_workflow(self) -> None:
         """Test complete testing workflow."""
         # Create comprehensive test suite
-        suite = TestSuite(
+        suite = TestingSuite(
             "integration_suite",
             enabled_strategies=frozenset(
                 [
-                    TestStrategy.UNIT,
-                    TestStrategy.PERFORMANCE,
-                    TestStrategy.CONTRACT,
+                    TestingStrategy.UNIT,
+                    TestingStrategy.PERFORMANCE,
+                    TestingStrategy.CONTRACT,
                 ]
             ),
         )
@@ -483,9 +483,9 @@ class TestTestingFrameworkIntegration:
             assert 2 + 2 == 4
 
         # Register all test functions
-        runner.register_test_function(unit_test, TestStrategy.UNIT)
-        runner.register_test_function(performance_test, TestStrategy.PERFORMANCE)
-        runner.register_test_function(contract_test, TestStrategy.CONTRACT)
+        runner.register_test_function(unit_test, TestingStrategy.UNIT)
+        runner.register_test_function(performance_test, TestingStrategy.PERFORMANCE)
+        runner.register_test_function(contract_test, TestingStrategy.CONTRACT)
 
         # Run all tests
         result = runner.run_all_tests()
@@ -494,9 +494,9 @@ class TestTestingFrameworkIntegration:
         # Verify results
         executions = result.unwrap()
         strategies = {e.strategy for e in executions}
-        assert TestStrategy.UNIT in strategies
-        assert TestStrategy.PERFORMANCE in strategies
-        assert TestStrategy.CONTRACT in strategies
+        assert TestingStrategy.UNIT in strategies
+        assert TestingStrategy.PERFORMANCE in strategies
+        assert TestingStrategy.CONTRACT in strategies
 
         # Check success rate
         success_rate = runner.get_success_rate()
@@ -515,7 +515,7 @@ class TestTestingFrameworkIntegration:
 
     def test_error_handling_and_recovery(self) -> None:
         """Test error handling and recovery in testing framework."""
-        suite = TestSuite("error_test_suite")
+        suite = TestingSuite("error_test_suite")
         runner = AdvancedTestRunner(suite)
 
         # Test with various error conditions
@@ -530,9 +530,9 @@ class TestTestingFrameworkIntegration:
         def timeout_test() -> None:
             time.sleep(0.01)  # Simulate work
 
-        runner.register_test_function(exception_test, TestStrategy.UNIT)
-        runner.register_test_function(assertion_test, TestStrategy.UNIT)
-        runner.register_test_function(timeout_test, TestStrategy.UNIT)
+        runner.register_test_function(exception_test, TestingStrategy.UNIT)
+        runner.register_test_function(assertion_test, TestingStrategy.UNIT)
+        runner.register_test_function(timeout_test, TestingStrategy.UNIT)
 
         # Run tests - should handle errors gracefully
         result = runner.run_all_tests()
@@ -542,7 +542,7 @@ class TestTestingFrameworkIntegration:
         assert len(executions) >= 3
 
         # Should have recorded failures
-        failed_tests = [e for e in executions if e.result == TestResult.FAILED]
+        failed_tests = [e for e in executions if e.result == TestingResult.FAILED]
         assert len(failed_tests) >= 2
 
         # Success rate should reflect failures
@@ -551,7 +551,7 @@ class TestTestingFrameworkIntegration:
 
     def test_concurrent_test_execution(self) -> None:
         """Test framework behavior with concurrent operations."""
-        suite = TestSuite("concurrent_suite", parallel_execution=True)
+        suite = TestingSuite("concurrent_suite", parallel_execution=True)
         runner = AdvancedTestRunner(suite)
 
         # Register multiple tests that could run concurrently
@@ -567,9 +567,9 @@ class TestTestingFrameworkIntegration:
             time.sleep(0.01)
             assert True
 
-        runner.register_test_function(concurrent_test_1, TestStrategy.UNIT)
-        runner.register_test_function(concurrent_test_2, TestStrategy.UNIT)
-        runner.register_test_function(concurrent_test_3, TestStrategy.UNIT)
+        runner.register_test_function(concurrent_test_1, TestingStrategy.UNIT)
+        runner.register_test_function(concurrent_test_2, TestingStrategy.UNIT)
+        runner.register_test_function(concurrent_test_3, TestingStrategy.UNIT)
 
         # Run tests
         time.time()
@@ -581,5 +581,5 @@ class TestTestingFrameworkIntegration:
         assert len(executions) >= 3
 
         # All tests should pass
-        passed_tests = [e for e in executions if e.result == TestResult.PASSED]
+        passed_tests = [e for e in executions if e.result == TestingResult.PASSED]
         assert len(passed_tests) >= 3

@@ -85,7 +85,7 @@ class TestDevHubCLIIntegration:
             result = cli_runner.invoke(cli, ["doctor"])
 
             assert result.exit_code == 0
-            assert "❌ Current directory is not a git repository" in result.output
+            assert "⚠️  Current directory is not a git repository" in result.output
 
     def test_project_status_command(self, cli_runner: CliRunner, temp_git_repo: Path) -> None:
         """Test project-status command."""

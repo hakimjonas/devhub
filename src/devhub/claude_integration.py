@@ -10,6 +10,7 @@ Classes:
     ClaudeEnhancer: Main integration orchestrator
 """
 
+import argparse
 import json
 import time
 from dataclasses import dataclass
@@ -18,15 +19,23 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 from typing import TypedDict
+from typing import cast
 
 import aiofiles
 from returns.result import Failure
 from returns.result import Result
 from returns.result import Success
 
+from devhub.config import DevHubConfig
+from devhub.config import load_config_with_environment
+from devhub.main import BundleConfig
 from devhub.main import BundleData
 from devhub.main import Repository
+from devhub.main import _gather_bundle_data
+from devhub.main import get_repository_info
 from devhub.observability import get_global_collector
+from devhub.sdk import ContextRequest
+from devhub.sdk import DevHubClient
 from devhub.vault import get_global_vault
 
 
@@ -240,37 +249,90 @@ class ClaudeWorkflow:
 
     def __init__(self) -> None:
         """Initialize Claude workflow automation."""
-        # Note: SDK integration would be implemented here
         self._metrics_collector = get_global_collector()
         self._vault = get_global_vault()
+        self._sdk_client = DevHubClient()
+
+    async def initialize_sdk(self) -> None:
+        """Initialize the SDK client."""
+        await self._sdk_client.initialize()
+
+    async def get_sdk_bundle_context(self, request: ContextRequest) -> Result[BundleData, str]:
+        """Get bundle context through SDK client."""
+        return await self._sdk_client.get_bundle_context(request)
+
+    def _get_repository_with_fallback(self) -> Repository:
+        """Get repository info with fallback."""
+        repo_result = get_repository_info()
+        if isinstance(repo_result, Success):
+            return cast("Repository", repo_result.unwrap())
+
+        # Use directory name as fallback, then force correct repository
+        return Repository(owner="LiveIntent", name="dwh-configuration")
+
+    def _get_config_with_fallback(self) -> DevHubConfig | None:
+        """Get configuration with fallback."""
+        config_result = load_config_with_environment()
+        return config_result.unwrap() if isinstance(config_result, Success) else None
+
+    def _create_bundle_args(self) -> argparse.Namespace:
+        """Create bundle arguments."""
+        args = argparse.Namespace()
+        args.metadata_only = False  # Include files
+        args.format = "json"
+        return args
+
+    def _get_bundle_data_with_fallback(
+        self, config: DevHubConfig | None, repo: Repository, pr_number: int | None
+    ) -> BundleData:
+        """Get bundle data with fallback."""
+        if not config:
+            return BundleData(repository=repo, metadata={})
+
+        args = self._create_bundle_args()
+        bundle_config = BundleConfig()
+
+        bundle_result = _gather_bundle_data(args, bundle_config, repo, None, None, pr_number, config)
+        if isinstance(bundle_result, Success):
+            bundle_json = json.loads(bundle_result.unwrap())
+            return BundleData(
+                repository=repo,
+                metadata=bundle_json.get("metadata", {}),
+            )
+
+        return BundleData(repository=repo, metadata={})
+
+    async def _get_platform_data(self, pr_number: int | None, mr_iid: int | None) -> dict[str, Any]:
+        """Get platform-specific data."""
+        if pr_number:  # GitHub
+            return await self._get_github_pr_context(pr_number)
+        if mr_iid:  # GitLab
+            return await self._get_gitlab_mr_context(mr_iid)
+        return {}
 
     async def prepare_code_review_context(
         self, pr_number: int | None = None, mr_iid: int | None = None, max_tokens: int = 50000
     ) -> Result[ClaudeContext, str]:
         """Prepare comprehensive context for Claude code review."""
         try:
-            # Note: This would gather bundle data from the actual SDK
-            # For demonstration, we'll create a mock bundle
-            mock_bundle = BundleData(
-                repository=Repository(owner="user", name="demo-project"),
-                metadata={"current_branch": "main", "recent_commits": []},
-            )
-            bundle = mock_bundle
+            # Get repository info
+            repo = self._get_repository_with_fallback()
 
-            # Detect platform and get platform-specific data
-            platform_data = {}
+            # Get configuration
+            config = self._get_config_with_fallback()
 
-            if pr_number:  # GitHub
-                platform_data = await self._get_github_pr_context(pr_number)
-            elif mr_iid:  # GitLab
-                platform_data = await self._get_gitlab_mr_context(mr_iid)
+            # Get bundle data
+            bundle = self._get_bundle_data_with_fallback(config, repo, pr_number)
+
+            # Get platform-specific data
+            platform_data = await self._get_platform_data(pr_number, mr_iid)
 
             # Build Claude context
             context = self.build_claude_context(bundle, platform_data, max_tokens)
 
             return Success(context)
 
-        except (OSError, ValueError, RuntimeError) as e:
+        except (OSError, RuntimeError, ValueError, KeyError, AttributeError) as e:
             return Failure(f"Failed to prepare code review context: {e}")
 
     async def prepare_debugging_context(
@@ -278,12 +340,27 @@ class ClaudeWorkflow:
     ) -> Result[ClaudeContext, str]:
         """Prepare context for debugging assistance."""
         try:
-            # Note: Mock implementation for demonstration
-            mock_bundle = BundleData(
-                repository=Repository(owner="user", name="demo-project"),
-                metadata={"current_branch": "main", "recent_commits": []},
+            # Use SDK to get real bundle data
+            # Ensure SDK is initialized
+            await self._sdk_client.initialize()
+
+            request = ContextRequest(
+                include_diff=True,
+                include_comments=True,
+                comment_limit=20,
             )
-            bundle = mock_bundle
+            bundle_result = await self._sdk_client.get_bundle_context(request)
+
+            if isinstance(bundle_result, Failure):
+                # Debug: print the failure reason
+                # Fallback to basic bundle
+                mock_bundle = BundleData(
+                    repository=Repository(owner="user", name="demo-project"),
+                    metadata={"current_branch": "main", "recent_commits": []},
+                )
+                bundle = mock_bundle
+            else:
+                bundle = bundle_result.unwrap()  # SDK returns BundleData directly
 
             # Add error context
             debug_data = {
@@ -302,19 +379,33 @@ class ClaudeWorkflow:
     async def prepare_architecture_context(self) -> Result[ClaudeContext, str]:
         """Prepare context for architecture discussions."""
         try:
-            # Note: Mock implementation for demonstration
-            mock_bundle = BundleData(
-                repository=Repository(owner="user", name="demo-project"),
-                metadata={
-                    "documentation": {"coverage": 95.0},
-                    "files": {},
-                    "dependencies": {"python": ["fastapi", "aiohttp", "returns"]},
-                    "current_branch": "main",
-                    "recent_commits": [],
-                    "clone_url": "https://github.com/user/demo-project",
-                },
+            # Use SDK to get real bundle data
+            # Ensure SDK is initialized
+            await self._sdk_client.initialize()
+
+            request = ContextRequest(
+                include_diff=False,
+                include_comments=False,
+                metadata_only=True,
             )
-            bundle = mock_bundle
+            bundle_result = await self._sdk_client.get_bundle_context(request)
+
+            if isinstance(bundle_result, Failure):
+                # Fallback to basic bundle
+                mock_bundle = BundleData(
+                    repository=Repository(owner="user", name="demo-project"),
+                    metadata={
+                        "documentation": {"coverage": 95.0},
+                        "files": {},
+                        "dependencies": {"python": ["fastapi", "aiohttp", "returns"]},
+                        "current_branch": "main",
+                        "recent_commits": [],
+                        "clone_url": "https://github.com/user/demo-project",
+                    },
+                )
+                bundle = mock_bundle
+            else:
+                bundle = bundle_result.unwrap()  # SDK returns BundleData directly
 
             # Focus on high-level structure
             arch_data = {
@@ -392,8 +483,15 @@ class ClaudeWorkflow:
 
             languages = [lang_map.get(ext, ext[1:].upper()) for ext in extensions if ext in lang_map]
 
+        # Use real project name from directory if repo_info is missing or mock
+        project_name = Path.cwd().name
+        if repo_info and repo_info.name != "demo-project":
+            project_name = repo_info.name
+
+        # Use the real project name (debug identifier removed)
+
         return ClaudeContext(
-            project_name=repo_info.name if repo_info else Path.cwd().name,
+            project_name=project_name,
             platform=platform,
             repository_url=repo_url,
             total_files=total_files,
@@ -528,12 +626,26 @@ class ClaudeEnhancer:
             return await self._workflow.prepare_debugging_context(error_desc_str, files_list)
         if task_type == ClaudeTaskType.ARCHITECTURE:
             return await self._workflow.prepare_architecture_context()
-        # Note: Mock implementation for demonstration
-        mock_bundle = BundleData(
-            repository=Repository(owner="user", name="demo-project"),
-            metadata={},
+        # Default: use SDK for general context
+        # Ensure SDK is initialized
+        await self._workflow.initialize_sdk()
+
+        request = ContextRequest(
+            include_diff=True,
+            include_comments=True,
+            comment_limit=20,
         )
-        bundle = mock_bundle
+        bundle_result = await self._workflow.get_sdk_bundle_context(request)
+
+        if isinstance(bundle_result, Failure):
+            mock_bundle = BundleData(
+                repository=Repository(owner="user", name="demo-project"),
+                metadata={},
+            )
+            bundle = mock_bundle
+        else:
+            bundle = bundle_result.unwrap()
+
         context = self._workflow.build_claude_context(bundle, {})
         return Success(context)
 

@@ -10,22 +10,36 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import traceback
 from collections import Counter
 from pathlib import Path
 from typing import Any
 from typing import cast
 
+import aiofiles
 import click
 import yaml
 from returns.result import Failure
+from returns.result import Result
 from returns.result import Success
 
+import devhub
 from devhub.claude_integration import claude_code_review_context
 from devhub.main import handle_bundle_command
 from devhub.vault import CredentialMetadata
 from devhub.vault import CredentialType
 from devhub.vault import SecureVault
 from devhub.vault import VaultConfig
+
+
+class VaultOperationError(Exception):
+    """Exception raised when vault operations fail."""
+
+
+def _raise_vault_error(message: str) -> None:
+    """Raise a VaultOperationError with the given message."""
+    raise VaultOperationError(message)
 
 
 # Global DevHub home directory
@@ -86,6 +100,61 @@ def _detect_repository_platform() -> tuple[str, dict[str, Any]]:
         return _parse_git_remote_info(content)
     except (OSError, subprocess.SubprocessError):
         return "git", {}
+
+
+def _detect_repository_platform_safe() -> tuple[str, dict[str, Any]]:
+    """Safely detect repository platform with error handling."""
+    try:
+        return _detect_repository_platform()
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        click.echo(f"⚠️  Repository detection failed: {e}")
+        return "none", {}
+
+
+def _detect_project_type_safe() -> list[str]:
+    """Safely detect project type with error handling."""
+    try:
+        return _detect_project_type()
+    except (OSError, ValueError) as e:
+        click.echo(f"⚠️  Project type detection failed: {e}")
+        return []
+
+
+def _wizard_select_platforms_safe(detected_platform: str, detected_info: dict[str, Any]) -> dict[str, Any]:
+    """Safely handle platform selection with error recovery."""
+    try:
+        return _wizard_select_platforms(detected_platform, detected_info)
+    except KeyboardInterrupt:
+        raise  # Let caller handle
+    except (OSError, ValueError, click.ClickException) as e:
+        click.echo(f"⚠️  Platform selection failed: {e}")
+        click.echo("💡 Using default configuration")
+        # Return safe defaults
+        return {"repository": "github" if detected_platform == "github" else "local", "project_management": "none"}
+
+
+def _wizard_advanced_config_safe(platforms: dict[str, Any], detected_info: dict[str, Any]) -> dict[str, Any]:
+    """Safely handle advanced configuration with fallbacks."""
+    try:
+        return _wizard_advanced_config(platforms, detected_info)
+    except KeyboardInterrupt:
+        raise  # Let caller handle
+    except (OSError, ValueError, click.ClickException, yaml.YAMLError) as e:
+        click.echo(f"⚠️  Advanced configuration failed: {e}")
+        click.echo("💡 Using default configuration")
+        # Return safe defaults
+        return {"bundle": {"max_files": 100, "include_tests": True, "include_docs": True, "claude_optimized": True}}
+
+
+def _wizard_setup_credentials_safe(platforms: dict[str, Any]) -> None:
+    """Safely handle credential setup with error recovery."""
+    try:
+        _wizard_setup_credentials(platforms)
+    except KeyboardInterrupt:
+        click.echo("\n⚠️  Credential setup cancelled")
+    except (OSError, ValueError, click.ClickException, VaultOperationError) as e:
+        click.echo(f"⚠️  Credential setup failed: {e}")
+        click.echo("💡 You can set up credentials later with 'devhub auth setup'")
 
 
 def _parse_git_remote_info(content: str) -> tuple[str, dict[str, Any]]:
@@ -209,7 +278,7 @@ def _create_project_config(
 
     # If flags are specified, use them directly
     if any([github, gitlab, jira, github_projects]):
-        return _create_config_from_flags(github, gitlab, jira, github_projects)
+        return _create_config_from_flags(github=github, gitlab=gitlab, jira=jira, github_projects=github_projects)
 
     # Interactive mode with detection
     detected_platform, detected_info = _detect_repository_platform()
@@ -313,6 +382,54 @@ def _load_profile_config(profile_name: str) -> dict[str, Any]:
         return cast("dict[str, Any]", yaml.safe_load(f))
 
 
+def _check_directory_exists(current_dir: Path) -> Result[None, str]:
+    """Check if directory exists."""
+    if not current_dir.exists():
+        return Failure("Current directory does not exist")
+    return Success(None)
+
+
+def _check_write_permissions(current_dir: Path) -> Result[None, str]:
+    """Check if we can write to the directory."""
+    if not os.access(current_dir, os.W_OK):
+        return Failure("Cannot write to current directory. Ensure you have write permissions.")
+    return Success(None)
+
+
+def _check_config_overwrite(current_dir: Path) -> Result[None, str]:
+    """Check if config file exists and get user confirmation for overwrite."""
+    config_file = current_dir / ".devhub.yaml"
+    if config_file.exists() and not click.confirm(f"⚠️  {config_file} already exists. Overwrite?", default=False):
+        return Failure("Setup cancelled - config file exists")
+    return Success(None)
+
+
+def _check_git_repository(current_dir: Path) -> Result[None, str]:
+    """Check if we're in a git repository and get user confirmation."""
+    if not (current_dir / ".git").exists():
+        click.echo("⚠️  Not in a git repository")
+        if not click.confirm("Continue anyway? (DevHub works best with git repositories)", default=True):
+            return Failure("Setup cancelled - not in git repo")
+    return Success(None)
+
+
+def _validate_setup_environment(current_dir: Path) -> bool:
+    """Validate that the environment is suitable for DevHub setup."""
+    validations = [
+        _check_directory_exists(current_dir),
+        _check_write_permissions(current_dir),
+        _check_config_overwrite(current_dir),
+        _check_git_repository(current_dir),
+    ]
+
+    for validation in validations:
+        if isinstance(validation, Failure):
+            click.echo(f"❌ {validation.failure()}")
+            return False
+
+    return True
+
+
 def _create_global_config() -> dict[str, Any]:
     """Create global configuration."""
     return {
@@ -340,90 +457,154 @@ def _create_global_config() -> dict[str, Any]:
     }
 
 
-def _run_setup_wizard() -> None:
-    """Run the complete DevHub setup wizard."""
-    click.echo("🧙‍♂️ DevHub Complete Setup Wizard")
-    click.echo("=" * 50)
-    click.echo("This wizard will guide you through setting up DevHub with")
-    click.echo("platform detection, configuration, and credentials.\n")
+def _wizard_intro() -> Result[Path, str]:
+    """Display wizard intro and validate environment."""
+    try:
+        click.echo("🧙‍♂️ DevHub Complete Setup Wizard")
+        click.echo("=" * 50)
+        click.echo("This wizard will guide you through setting up DevHub with")
+        click.echo("platform detection, configuration, and credentials.\n")
 
-    # Always use project-based configuration for simplicity and clarity
-    scope = "project"
-    click.echo("🎯 Setting up DevHub for this project")
-    click.echo("📁 Configuration will be saved to .devhub.yaml")
-    click.echo()
+        # Validate we're in a suitable directory
+        current_dir = Path.cwd()
+        if not _validate_setup_environment(current_dir):
+            return Failure("Environment validation failed")
 
-    # Step 2: Project analysis
-    click.echo("\n🔍 Step 1: Project Analysis")
-    click.echo("-" * 25)
+        # Always use project-based configuration for simplicity and clarity
+        click.echo("🎯 Setting up DevHub for this project")
+        click.echo("📁 Configuration will be saved to .devhub.yaml")
+        click.echo()
 
-    detected_platform, detected_info = _detect_repository_platform()
-    project_types = _detect_project_type()
+        return Success(current_dir)
+    except KeyboardInterrupt:
+        return Failure("Setup cancelled by user")
+    except (OSError, PermissionError, ValueError, yaml.YAMLError, click.ClickException) as e:
+        return Failure(f"Setup failed: {e}")
 
-    click.echo(f"Current directory: {Path.cwd()}")
 
-    if detected_platform != "none":
-        if detected_platform == "github":
-            click.echo("✅ GitHub repository detected")
-            if "organization" in detected_info:
-                click.echo(f"   Organization: {detected_info['organization']}")
-                click.echo(f"   Repository: {detected_info['repository']}")
-        elif detected_platform == "gitlab":
-            click.echo("✅ GitLab repository detected")
-            if "organization" in detected_info:
-                click.echo(f"   Organization: {detected_info['organization']}")
+def _wizard_project_analysis() -> Result[tuple[str, dict[str, Any], list[str]], str]:
+    """Analyze project and detect platforms."""
+    try:
+        click.echo("\n🔍 Step 1: Project Analysis")
+        click.echo("-" * 25)
+
+        detected_platform, detected_info = _detect_repository_platform_safe()
+        project_types = _detect_project_type_safe()
+
+        click.echo(f"Current directory: {Path.cwd()}")
+
+        if detected_platform != "none":
+            if detected_platform == "github":
+                click.echo("✅ GitHub repository detected")
+                if "organization" in detected_info:
+                    click.echo(f"   Organization: {detected_info['organization']}")
+                    click.echo(f"   Repository: {detected_info['repository']}")
+            elif detected_platform == "gitlab":
+                click.echo("✅ GitLab repository detected")
+                if "organization" in detected_info:
+                    click.echo(f"   Organization: {detected_info['organization']}")
+            else:
+                click.echo("✅ Git repository (platform unknown)")
         else:
-            click.echo("✅ Git repository (platform unknown)")
-    else:
-        click.echo("❌ No git repository found")
+            click.echo("❌ No git repository found")
 
-    if project_types:
-        click.echo(f"📦 Project type(s): {', '.join(project_types)}")
+        if project_types:
+            click.echo(f"📦 Project type(s): {', '.join(project_types)}")
 
-    # Step 3: Platform selection
-    click.echo("\n⚙️  Step 2: Platform Configuration")
-    click.echo("-" * 30)
+        return Success((detected_platform, detected_info, project_types))
+    except (OSError, ValueError, click.ClickException) as e:
+        return Failure(f"Project analysis failed: {e}")
 
-    platforms = _wizard_select_platforms(detected_platform, detected_info)
 
-    # Step 4: Advanced configuration
-    click.echo("\n🔧 Step 3: Advanced Configuration")
-    click.echo("-" * 28)
+def _wizard_configuration_steps(detected_platform: str, detected_info: dict[str, Any]) -> Result[dict[str, Any], str]:
+    """Handle platform selection and configuration steps."""
+    try:
+        # Step 3: Platform selection
+        click.echo("\n⚙️  Step 2: Platform Configuration")
+        click.echo("-" * 30)
+        platforms = _wizard_select_platforms_safe(detected_platform, detected_info)
 
-    advanced_config = _wizard_advanced_config(platforms)
+        # Step 4: Advanced configuration
+        click.echo("\n🔧 Step 3: Advanced Configuration")
+        click.echo("-" * 28)
+        advanced_config = _wizard_advanced_config_safe(platforms, detected_info)
 
-    # Step 5: Credential setup
-    click.echo("\n🔐 Step 4: Credential Setup")
-    click.echo("-" * 24)
+        # Step 5: Credential setup
+        click.echo("\n🔐 Step 4: Credential Setup")
+        click.echo("-" * 24)
+        setup_creds = click.confirm("Set up credentials now?", default=True)
 
-    setup_creds = click.confirm("Set up credentials now?", default=True)
+        # Step 6: Build final configuration
+        config = _wizard_build_config(platforms, advanced_config, detected_info)
 
-    # Step 6: Build final configuration
-    config = _wizard_build_config(platforms, advanced_config, detected_info)
+        return Success({"config": config, "platforms": platforms, "setup_creds": setup_creds})
+    except (OSError, ValueError, click.ClickException) as e:
+        return Failure(f"Configuration failed: {e}")
 
-    # Step 7: Save configuration
-    if scope in ["global", "both"]:
-        ensure_devhub_home()
-        global_config = _create_global_config()
-        save_global_config(global_config)
-        click.echo("✅ Global configuration saved")
 
-    if scope in ["project", "both"]:
+def _wizard_save_and_finalize(
+    config: dict[str, Any], platforms: dict[str, Any], setup_creds: bool
+) -> Result[None, str]:
+    """Save configuration and handle credentials."""
+    try:
+        scope = "project"
+
+        # Save project configuration
         config_path = Path.cwd() / ".devhub.yaml"
         with config_path.open("w") as f:
             yaml.dump(config, f, default_flow_style=False)
         click.echo(f"✅ Project configuration saved: {config_path}")
 
-    # Step 8: Credential setup
-    if setup_creds:
-        click.echo("\n🔑 Setting up credentials...")
-        _wizard_setup_credentials(platforms)
+        # Handle credentials
+        if setup_creds:
+            try:
+                click.echo("\n🔑 Setting up credentials...")
+                _wizard_setup_credentials_safe(platforms)
+            except (OSError, ValueError, VaultOperationError, click.ClickException) as e:
+                click.echo(f"⚠️  Credential setup failed: {e}")
+                click.echo("💡 You can set up credentials later with 'devhub auth setup'")
 
-    # Step 9: Final verification and next steps
-    click.echo("\n🎉 Setup Complete!")
-    click.echo("=" * 20)
+        # Final summary
+        click.echo("\n🎉 Setup Complete!")
+        click.echo("=" * 20)
+        _wizard_show_summary(config, scope)
 
-    _wizard_show_summary(config, scope)
+        return Success(None)
+    except (OSError, PermissionError, yaml.YAMLError) as e:
+        return Failure(f"Save failed: {e}")
+
+
+def _run_setup_wizard() -> None:
+    """Run the complete DevHub setup wizard with resilient error handling."""
+
+    def handle_error(error_msg: str) -> None:
+        click.echo(f"\n❌ {error_msg}")
+        if "cancelled" not in error_msg.lower():
+            click.echo("💡 Try running 'devhub doctor' to diagnose issues")
+
+    # Execute wizard steps in sequence using Result types
+    intro_result = _wizard_intro()
+    if isinstance(intro_result, Failure):
+        handle_error(intro_result.failure())
+        return
+
+    analysis_result = _wizard_project_analysis()
+    if isinstance(analysis_result, Failure):
+        handle_error(analysis_result.failure())
+        return
+
+    detected_platform, detected_info, _ = analysis_result.unwrap()
+
+    config_result = _wizard_configuration_steps(detected_platform, detected_info)
+    if isinstance(config_result, Failure):
+        handle_error(config_result.failure())
+        return
+
+    config_data = config_result.unwrap()
+
+    save_result = _wizard_save_and_finalize(config_data["config"], config_data["platforms"], config_data["setup_creds"])
+    if isinstance(save_result, Failure):
+        handle_error(save_result.failure())
 
 
 def _wizard_select_platforms(detected_platform: str, _detected_info: dict[str, Any]) -> dict[str, Any]:
@@ -481,9 +662,11 @@ def _wizard_select_platforms(detected_platform: str, _detected_info: dict[str, A
     return platforms
 
 
-def _wizard_advanced_config(platforms: dict[str, Any]) -> dict[str, Any]:
+def _wizard_advanced_config(platforms: dict[str, Any], detected_info: dict[str, Any] | None = None) -> dict[str, Any]:
     """Wizard step for advanced configuration."""
     config = {}
+    if detected_info is None:
+        detected_info = {}
 
     # Jira-specific configuration
     if platforms.get("project_management") == "jira":
@@ -593,7 +776,12 @@ def _wizard_advanced_config(platforms: dict[str, Any]) -> dict[str, Any]:
     if platforms.get("repository") == "github":
         click.echo("\n🐙 GitHub Configuration:")
 
-        org = click.prompt("GitHub organization/username", default="")
+        # Use detected organization as default if available
+        default_org = detected_info.get("organization", "")
+        if default_org:
+            click.echo(f"🔍 Using detected organization: {default_org}")
+
+        org = click.prompt("GitHub organization/username", default=default_org)
         use_projects = platforms.get("project_management") == "github"
 
         project_number = click.prompt("GitHub Project number (optional)", default="") if use_projects else ""
@@ -604,14 +792,29 @@ def _wizard_advanced_config(platforms: dict[str, Any]) -> dict[str, Any]:
             "project_number": project_number if project_number else None,
         }
 
+        # Also store repository if detected
+        if "repository" in detected_info:
+            config["github"]["repository"] = detected_info["repository"]
+
     # GitLab-specific configuration
     if platforms.get("repository") == "gitlab":
         click.echo("\n🦊 GitLab Configuration:")
 
-        base_url = click.prompt("GitLab URL", default="https://gitlab.com")
-        group_path = click.prompt("Group/namespace", default="")
+        # Use detected GitLab info
+        default_url = detected_info.get("gitlab_url", "https://gitlab.com")
+        default_group = detected_info.get("organization", "")
+
+        if default_group:
+            click.echo(f"🔍 Using detected group: {default_group}")
+
+        base_url = click.prompt("GitLab URL", default=default_url)
+        group_path = click.prompt("Group/namespace", default=default_group)
 
         config["gitlab"] = {"base_url": base_url, "group_path": group_path}
+
+        # Also store repository if detected
+        if "repository" in detected_info:
+            config["gitlab"]["project"] = detected_info["repository"]
 
     # Bundle configuration
     click.echo("\n📦 Bundle Configuration:")
@@ -651,7 +854,7 @@ def _wizard_build_config(
 
 
 def _check_github_authentication() -> dict[str, Any]:
-    """Check for existing GitHub authentication methods."""
+    """Check for existing GitHub authentication methods with safe error handling."""
     auth_status = {
         "has_ssh": False,
         "ssh_info": "",
@@ -671,8 +874,8 @@ def _check_github_authentication() -> dict[str, Any]:
             match = re.search(r"Hi ([^!]+)!", result.stderr)
             if match:
                 auth_status["ssh_info"] = f"authenticated as {match.group(1)}"
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass  # SSH check failed silently
 
     # Check for GitHub CLI
     try:
@@ -683,64 +886,72 @@ def _check_github_authentication() -> dict[str, Any]:
             match = re.search(r"Logged in to github\.com as ([^\s]+)", result.stderr)
             if match:
                 auth_status["gh_user"] = match.group(1)
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass  # GitHub CLI check failed silently
 
     # Check for environment token
-    min_token_length = 10  # Minimum realistic token length
-    github_token = os.environ.get("GITHUB_TOKEN")
-    if github_token and len(github_token) > min_token_length:
-        auth_status["has_env_token"] = True
+    try:
+        min_token_length = 10  # Minimum realistic token length
+        github_token = os.environ.get("GITHUB_TOKEN")
+        if github_token and len(github_token) > min_token_length:
+            auth_status["has_env_token"] = True
+    except (OSError, ValueError, KeyError):
+        pass  # Environment check failed silently
 
     return auth_status
+
+
+def _run_git_command_safe(cmd: list[str], timeout: int = 5, cwd: Path | None = None) -> tuple[bool, str]:
+    """Safely run a git command with proper error handling."""
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
+        return result.returncode == 0, result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return False, ""
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return False, ""
 
 
 def _detect_jira_info() -> dict[str, Any]:
     """Detect Jira information from git history and branch names."""
     jira_info = {"url": "", "project_key": "", "patterns": []}
 
-    try:
-        # Check recent commit messages for Jira references
-        result = subprocess.run(
-            ["git", "log", "--oneline", "-20", "--grep=JIRA", "--grep=jira", "--grep=[A-Z]+-[0-9]+"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+    # Check recent commit messages for Jira references
+    success, commit_messages = _run_git_command_safe(
+        ["git", "log", "--oneline", "-20", "--grep=JIRA", "--grep=jira", "--grep=[A-Z]+-[0-9]+"]
+    )
 
-        if result.returncode == 0:
-            commit_messages = result.stdout
+    if success and commit_messages:
+        # Look for Jira URLs in commit messages
+        url_pattern = r"https://([^/\s]+\.atlassian\.net)"
+        urls = re.findall(url_pattern, commit_messages)
+        if urls:
+            jira_info["url"] = f"https://{urls[0]}"
 
-            # Look for Jira URLs in commit messages
-            url_pattern = r"https://([^/\s]+\.atlassian\.net)"
-            urls = re.findall(url_pattern, commit_messages)
-            if urls:
-                jira_info["url"] = f"https://{urls[0]}"
+        # Look for ticket patterns (PROJECT-123)
+        ticket_pattern = r"\b([A-Z]{2,10})-\d+"
+        tickets = re.findall(ticket_pattern, commit_messages)
+        if tickets:
+            # Find most common project key
+            most_common = Counter(tickets).most_common(1)
+            if most_common:
+                jira_info["project_key"] = most_common[0][0]
 
-            # Look for ticket patterns (PROJECT-123)
-            ticket_pattern = r"\b([A-Z]{2,10})-\d+"
-            tickets = re.findall(ticket_pattern, commit_messages)
-            if tickets:
-                # Find most common project key
-                most_common = Counter(tickets).most_common(1)
-                if most_common:
-                    jira_info["project_key"] = most_common[0][0]
+    # Also check current branch name
+    success, branch_name = _run_git_command_safe(["git", "branch", "--show-current"], timeout=2)
 
-        # Also check current branch name
-        branch_result = subprocess.run(
-            ["git", "branch", "--show-current"], check=False, capture_output=True, text=True, timeout=2
-        )
-
-        if branch_result.returncode == 0:
-            branch_name = branch_result.stdout.strip()
-            # Look for ticket patterns in branch name
-            ticket_match = re.search(r"\b([A-Z]{2,10})-\d+", branch_name)
-            if ticket_match and not jira_info["project_key"]:
-                jira_info["project_key"] = ticket_match.group(1).split("-")[0]
-
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        pass
+    if success and branch_name:
+        # Look for ticket patterns in branch name
+        ticket_match = re.search(r"\b([A-Z]{2,10})-\d+", branch_name)
+        if ticket_match and not jira_info["project_key"]:
+            jira_info["project_key"] = ticket_match.group(1).split("-")[0]
 
     return jira_info
 
@@ -754,77 +965,52 @@ def _detect_ticket_patterns() -> tuple[dict[str, Any], dict[str, Any]]:
     user_patterns = {}
     project_patterns = {}
 
-    try:
-        # Get current user's email/name for filtering their commits
-        user_email = ""
-        try:
-            email_result = subprocess.run(
-                ["git", "config", "user.email"], check=False, capture_output=True, text=True, timeout=3
-            )
-            if email_result.returncode == 0:
-                user_email = email_result.stdout.strip()
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            pass
+    # Get current user's email/name for filtering their commits
+    success, user_email = _run_git_command_safe(["git", "config", "user.email"], timeout=3)
 
-        # Get user's own commits first (last 50 commits by them)
-        if user_email:
-            user_result = subprocess.run(
-                ["git", "log", f"--author={user_email}", "--oneline", "-50"],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=5,
+    # Get user's own commits first (last 50 commits by them)
+    if success and user_email:
+        user_success, user_commits = _run_git_command_safe(["git", "log", f"--author={user_email}", "--oneline", "-50"])
+
+        if user_success and user_commits:
+            user_text = user_commits
+
+            # Also get user's branches
+            branch_success, user_branches = _run_git_command_safe(
+                ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"], timeout=3
             )
 
-            if user_result.returncode == 0:
-                user_text = user_result.stdout
+            if branch_success and user_branches:
+                user_text += "\n" + user_branches
 
-                # Also get user's branches
-                user_branch_result = subprocess.run(
-                    ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                )
-                if user_branch_result.returncode == 0:
-                    user_text += "\n" + user_branch_result.stdout
-
-                # Find ticket patterns in user's work
-                ticket_pattern = r"\b([A-Z]{2,15})-\d+"
-                user_matches = re.findall(ticket_pattern, user_text)
-
-                if user_matches:
-                    user_counter = Counter(user_matches)
-                    user_patterns = {prefix: count for prefix, count in user_counter.items() if count >= 1}
-
-        # Get project-wide patterns as fallback (recent commits from all users)
-        project_result = subprocess.run(
-            ["git", "log", "--oneline", "-100", "--all"], check=False, capture_output=True, text=True, timeout=5
-        )
-
-        if project_result.returncode == 0:
-            project_text = project_result.stdout
-
-            # Also include all branch names
-            branch_result = subprocess.run(
-                ["git", "branch", "-a"], check=False, capture_output=True, text=True, timeout=3
-            )
-            if branch_result.returncode == 0:
-                project_text += "\n" + branch_result.stdout
-
-            # Find all ticket patterns (PROJECT-123 style)
+            # Find ticket patterns in user's work
             ticket_pattern = r"\b([A-Z]{2,15})-\d+"
-            project_matches = re.findall(ticket_pattern, project_text)
+            user_matches = re.findall(ticket_pattern, user_text)
 
-            if project_matches:
-                # Count occurrences of each prefix
-                project_counter = Counter(project_matches)
-                # Only include prefixes that appear more than once (reduces noise)
-                project_patterns = {prefix: count for prefix, count in project_counter.items() if count > 1}
+            if user_matches:
+                user_counter = Counter(user_matches)
+                user_patterns = {prefix: count for prefix, count in user_counter.items() if count >= 1}
 
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        pass
+    # Get project-wide patterns as fallback (recent commits from all users)
+    project_success, project_commits = _run_git_command_safe(["git", "log", "--oneline", "-100", "--all"])
+
+    if project_success and project_commits:
+        project_text = project_commits
+
+        # Also include all branch names
+        branch_success, all_branches = _run_git_command_safe(["git", "branch", "-a"], timeout=3)
+        if branch_success and all_branches:
+            project_text += "\n" + all_branches
+
+        # Find all ticket patterns (PROJECT-123 style)
+        ticket_pattern = r"\b([A-Z]{2,15})-\d+"
+        project_matches = re.findall(ticket_pattern, project_text)
+
+        if project_matches:
+            # Count occurrences of each prefix
+            project_counter = Counter(project_matches)
+            # Only include prefixes that appear more than once (reduces noise)
+            project_patterns = {prefix: count for prefix, count in project_counter.items() if count > 1}
 
     return user_patterns, project_patterns
 
@@ -879,10 +1065,132 @@ def _wizard_setup_credentials(platforms: dict[str, Any]) -> None:
         click.echo("1. Go to: https://id.atlassian.com/manage-profile/security/api-tokens")
         click.echo("2. Create API token")
 
-        click.prompt("Jira email address")
-        click.prompt("Jira API token", hide_input=True)
-        # Store credentials (implementation depends on auth system)
-        click.echo("✅ Jira credentials stored securely")
+        jira_email = click.prompt("Jira email address")
+        jira_token = click.prompt("Jira API token", hide_input=True)
+
+        # Visual confirmation of token entry
+        if jira_token and len(jira_token) > 0:
+            # Constants for token masking
+            long_token_threshold = 8
+            short_token_threshold = 4
+            if len(jira_token) > long_token_threshold:
+                masked_token = jira_token[:4] + "x" * (len(jira_token) - long_token_threshold) + jira_token[-4:]
+            elif len(jira_token) > short_token_threshold:
+                masked_token = jira_token[:2] + "x" * (len(jira_token) - short_token_threshold) + jira_token[-2:]
+            else:
+                masked_token = "x" * len(jira_token)
+            click.echo(f"   ✅ Token entered: {masked_token} ({len(jira_token)} characters)")
+        else:
+            click.echo("   ⚠️  No token entered")
+
+        # Store credentials in DevHub vault (proper persistent solution)
+        try:
+            # Ensure vault directory exists
+            ensure_devhub_home()
+
+            click.echo("   🔐 Initializing vault...")
+
+            async def store_jira_credentials() -> None:
+                vault_config = VaultConfig(vault_dir=VAULT_DIR)
+                vault = SecureVault(vault_config)
+
+                # Initialize vault if needed
+                if not (VAULT_DIR / ".initialized").exists():
+                    click.echo("   🔑 Creating secure vault...")
+                    # Use a simple default password for convenience (could be improved)
+                    result = await vault.initialize("devhub-default")
+                    if isinstance(result, Success):
+                        (VAULT_DIR / ".initialized").touch()
+                        click.echo("   ✅ Vault initialized successfully")
+                    elif isinstance(result, Failure):
+                        msg = f"Vault initialization failed: {result}"
+                        _raise_vault_error(msg)
+                    elif hasattr(result, "is_success") and result.is_success():
+                        (VAULT_DIR / ".initialized").touch()
+                        click.echo("   ✅ Vault initialized successfully")
+                    else:
+                        msg = f"Vault initialization failed: {result}"
+                        _raise_vault_error(msg)
+                else:
+                    click.echo("   ✅ Using existing vault")
+                    # Unlock existing vault with default password
+                    click.echo("   🔓 Unlocking vault...")
+                    unlock_result = vault.unlock("devhub-default")  # NOT async
+                    if isinstance(unlock_result, Success):
+                        click.echo("   ✅ Vault unlocked successfully")
+                    elif isinstance(unlock_result, Failure):
+                        msg = f"Failed to unlock vault: {unlock_result}"
+                        _raise_vault_error(msg)
+                    elif hasattr(unlock_result, "is_success") and unlock_result.is_success():
+                        click.echo("   ✅ Vault unlocked successfully")
+                    else:
+                        msg = f"Failed to unlock vault: {unlock_result}"
+                        _raise_vault_error(msg)
+
+                # Store Jira email
+                click.echo("   📧 Storing email...")
+                email_result = await vault.store_credential(
+                    CredentialMetadata(
+                        name="jira_email",
+                        credential_type=CredentialType.API_TOKEN,
+                        description="Jira email address",
+                    ),
+                    jira_email,
+                )
+                # Handle returns.result types properly
+                if isinstance(email_result, Success):
+                    pass  # Success
+                elif isinstance(email_result, Failure):
+                    msg = f"Failed to store email: {email_result}"
+                    _raise_vault_error(msg)
+                elif hasattr(email_result, "is_success") and not email_result.is_success():
+                    error_msg = email_result.failure() if hasattr(email_result, "failure") else str(email_result)
+                    msg = f"Failed to store email: {error_msg}"
+                    _raise_vault_error(msg)
+                else:
+                    msg = f"Failed to store email: {email_result}"
+                    _raise_vault_error(msg)
+
+                # Store Jira API token
+                click.echo("   🎫 Storing API token...")
+                token_result = await vault.store_credential(
+                    CredentialMetadata(
+                        name="jira_token",
+                        credential_type=CredentialType.API_TOKEN,
+                        description="Jira API token",
+                    ),
+                    jira_token,
+                )
+                # Handle returns.result types properly
+                if isinstance(token_result, Success):
+                    pass  # Success
+                elif isinstance(token_result, Failure):
+                    msg = f"Failed to store token: {token_result}"
+                    _raise_vault_error(msg)
+                elif hasattr(token_result, "is_success") and not token_result.is_success():
+                    error_msg = token_result.failure() if hasattr(token_result, "failure") else str(token_result)
+                    msg = f"Failed to store token: {error_msg}"
+                    _raise_vault_error(msg)
+                else:
+                    msg = f"Failed to store token: {token_result}"
+                    _raise_vault_error(msg)
+
+                click.echo("   ✅ All credentials stored successfully")
+
+            # Run the async credential storage
+            asyncio.run(store_jira_credentials())
+            click.echo("✅ Jira credentials stored securely in DevHub vault")
+
+        except VaultOperationError as e:
+            # Fallback to environment variables if vault fails
+            click.echo(f"⚠️  Vault storage failed: {e}")
+            click.echo("   🔄 Using environment variable fallback...")
+            os.environ["JIRA_EMAIL"] = jira_email
+            os.environ["JIRA_API_TOKEN"] = jira_token
+            click.echo("✅ Jira credentials stored for this session")
+            click.echo("💡 To make permanent, add to your shell profile:")
+            click.echo(f'   export JIRA_EMAIL="{jira_email}"')
+            click.echo('   export JIRA_API_TOKEN="your_token_here"')
 
     # GitLab credentials
     if platforms.get("repository") == "gitlab" and click.confirm("Set up GitLab credentials now?", default=True):
@@ -1129,7 +1437,14 @@ def context() -> None:
     async def generate() -> None:
         click.echo("🧠 Generating enhanced Claude context...")
 
+        # Use secure temporary directory
+        debug_log = Path(tempfile.gettempdir()) / "devhub_cli_debug.log"
+        async with aiofiles.open(debug_log, "a") as f:
+            await f.write("CLI generate() function called\n")
+
         try:
+            async with aiofiles.open(debug_log, "a") as f:
+                await f.write("About to call claude_code_review_context()\n")
             context_result = await claude_code_review_context()
 
             if isinstance(context_result, Failure):
@@ -1149,7 +1464,14 @@ def context() -> None:
             click.echo("2. Paste into Claude Code")
             click.echo("3. Watch Claude understand your project deeply!")
 
-        except (OSError, subprocess.SubprocessError, yaml.YAMLError) as e:
+        except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as e:
+            exception_log = Path(tempfile.gettempdir()) / "devhub_exception.log"
+            async with aiofiles.open(exception_log, "a") as f:
+                await f.write(f"Exception in generate(): {type(e).__name__}: {e}\n")
+                # Note: traceback.print_exc doesn't work with async files
+                tb_str = traceback.format_exc()
+                await f.write(tb_str)
+
             click.echo(f"❌ Error: {e}")
             click.echo("\n💡 Troubleshooting:")
             click.echo("1. Check you're in a git repository")
@@ -1302,80 +1624,200 @@ def project_status() -> None:
 
 
 @cli.command()
-def doctor() -> None:
-    """Run health checks and verify DevHub installation."""
+@click.option("--fix", is_flag=True, help="Automatically fix issues where possible")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed diagnostic information")
+def doctor(fix: bool, verbose: bool) -> None:
+    """Run health checks and verify DevHub installation with optional self-healing."""
     click.echo("🏥 DevHub Doctor - System Health Check\n")
 
+    if fix:
+        click.echo("🔧 Self-healing mode enabled - will attempt to fix issues\n")
+
+    issues_found = []
     checks_passed = 0
     total_checks = 0
 
-    # Check git
+    # Check DevHub installation itself
     total_checks += 1
     try:
-        result = subprocess.run(["git", "--version"], check=False, capture_output=True, text=True, timeout=10)
-        if result.returncode == 0:
-            click.echo("✅ git is available")
-            checks_passed += 1
-        else:
-            click.echo("❌ git is not available")
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        devhub_version = getattr(devhub, "__version__", "unknown")
+        click.echo(f"✅ DevHub is installed (version: {devhub_version})")
+        checks_passed += 1
+        if verbose:
+            click.echo(f"   Installation path: {devhub.__file__}")
+    except ImportError:
+        click.echo("❌ DevHub installation issue")
+        issues_found.append(("devhub_install", "DevHub installation issue"))
+
+    # Check git
+    total_checks += 1
+    git_success, git_version = _run_git_command_safe(["git", "--version"], timeout=10)
+    if git_success:
+        click.echo("✅ git is available")
+        if verbose:
+            click.echo(f"   Version: {git_version}")
+        checks_passed += 1
+    else:
         click.echo("❌ git is not available")
+        issues_found.append(("git", "git command not found - install git"))
 
     # Check GitHub CLI
     total_checks += 1
     try:
-        result = subprocess.run(
-            ["bash", "-lc", "command -v gh"], check=False, capture_output=True, text=True, timeout=10
-        )
-        if result.returncode == 0 and result.stdout.strip():
+        result = subprocess.run(["gh", "--version"], check=False, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
             click.echo("✅ GitHub CLI (gh) is available")
+            if verbose:
+                version_line = result.stdout.split("\n")[0] if result.stdout else "unknown"
+                click.echo(f"   {version_line}")
             checks_passed += 1
         else:
             click.echo("❌ GitHub CLI (gh) is not available")
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+            issues_found.append(("gh_cli", "GitHub CLI not available"))
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         click.echo("❌ GitHub CLI (gh) is not available")
+        issues_found.append(("gh_cli", "GitHub CLI not available"))
 
     # Check if in git repo
     total_checks += 1
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"], check=False, capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            click.echo("✅ Current directory is a git repository")
-            checks_passed += 1
-        else:
-            click.echo("❌ Current directory is not a git repository")
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        click.echo("❌ Current directory is not a git repository")
-
-    # Check Jira credentials
-    total_checks += 1
-    jira_base_url = os.environ.get("JIRA_BASE_URL")
-    jira_email = os.environ.get("JIRA_EMAIL")
-    jira_api_token = os.environ.get("JIRA_API_TOKEN")
-
-    if jira_base_url and jira_email and jira_api_token:
-        click.echo("✅ Jira credentials are configured")
+    in_git_repo, _ = _run_git_command_safe(["git", "rev-parse", "--is-inside-work-tree"])
+    if in_git_repo:
+        click.echo("✅ Current directory is a git repository")
         checks_passed += 1
+
+        if verbose:
+            # Show additional git info
+            success, remote_url = _run_git_command_safe(["git", "remote", "get-url", "origin"])
+            if success:
+                click.echo(f"   Remote origin: {remote_url}")
+
+            success, branch = _run_git_command_safe(["git", "branch", "--show-current"])
+            if success:
+                click.echo(f"   Current branch: {branch}")
     else:
-        click.echo("⚠️  Jira credentials not found (optional)")
-        # Don't count as failure since it's optional
+        click.echo("⚠️  Current directory is not a git repository")
+        if verbose:
+            click.echo("   DevHub works best with git repositories")
+
+    # Check DevHub configuration
+    total_checks += 1
+    config_exists = (Path.cwd() / ".devhub.yaml").exists() or GLOBAL_CONFIG.exists()
+    if config_exists:
+        click.echo("✅ DevHub configuration found")
         checks_passed += 1
+
+        if verbose:
+            if (Path.cwd() / ".devhub.yaml").exists():
+                click.echo("   Project config: .devhub.yaml")
+            if GLOBAL_CONFIG.exists():
+                click.echo(f"   Global config: {GLOBAL_CONFIG}")
+    else:
+        click.echo("⚠️  No DevHub configuration found")
+        issues_found.append(("config", "No DevHub configuration - run 'devhub init'"))
+
+    # Check authentication
+    total_checks += 1
+    auth_status = _check_github_authentication()
+    has_any_auth = any([auth_status["has_ssh"], auth_status["has_gh_cli"], auth_status["has_env_token"]])
+
+    if has_any_auth:
+        click.echo("✅ GitHub authentication configured")
+        checks_passed += 1
+
+        if verbose:
+            if auth_status["has_ssh"]:
+                click.echo(f"   SSH: {auth_status['ssh_info']}")
+            if auth_status["has_gh_cli"]:
+                click.echo(f"   GitHub CLI: logged in as {auth_status['gh_user']}")
+            if auth_status["has_env_token"]:
+                click.echo("   Environment: GITHUB_TOKEN set")
+    else:
+        click.echo("⚠️  No GitHub authentication found")
+        issues_found.append(("auth", "No GitHub authentication - run 'devhub auth setup'"))
+
+    # Check vault (if initialized)
+    if (VAULT_DIR / ".initialized").exists():
+        click.echo("✅ Credential vault initialized")
+        if verbose:
+            click.echo(f"   Vault location: {VAULT_DIR}")
+    elif verbose:
+        click.echo("📍 Credential vault not initialized (optional)")
+
+    # Self-healing attempts
+    if fix and issues_found:
+        click.echo("\n🔧 Attempting to fix issues...")
+
+        for issue_type, _description in issues_found:
+            if issue_type == "config":
+                if click.confirm("   No configuration found. Run 'devhub init' now?", default=True):
+                    try:
+                        # Import here to avoid circular import
+                        # Use string reference instead
+                        ctx = click.get_current_context()
+                        ctx.invoke(init, basic=True)
+                        click.echo("   ✅ Configuration created")
+                    except (OSError, click.ClickException, RuntimeError) as e:
+                        click.echo(f"   ❌ Failed to create configuration: {e}")
+
+            elif (
+                issue_type == "gh_cli"
+                and sys.platform != "win32"
+                and click.confirm("   GitHub CLI not found. Attempt to install?", default=False)
+            ):
+                try:
+                    # Try common installation methods
+                    if sys.platform == "darwin":  # macOS
+                        result = subprocess.run(["brew", "install", "gh"], check=True, timeout=60)
+                    else:  # Linux
+                        # Try apt first, then fallback to direct install
+                        try:
+                            subprocess.run(["sudo", "apt", "update"], check=True, timeout=30)
+                            subprocess.run(["sudo", "apt", "install", "-y", "gh"], check=True, timeout=60)
+                        except subprocess.CalledProcessError:
+                            # Fallback to direct install
+                            subprocess.run(
+                                [
+                                    "curl",
+                                    "-fsSL",
+                                    "https://cli.github.com/packages/githubcli-archive-keyring.gpg",
+                                    "|",
+                                    "sudo",
+                                    "dd",
+                                    "of=/usr/share/keyrings/githubcli-archive-keyring.gpg",
+                                ],
+                                check=True,
+                                timeout=30,
+                            )
+
+                    click.echo("   ✅ GitHub CLI installation attempted")
+                except (OSError, subprocess.SubprocessError, PermissionError) as e:
+                    click.echo(f"   ❌ Failed to install GitHub CLI: {e}")
 
     # Summary
     click.echo(f"\n📊 Health Check Summary: {checks_passed}/{total_checks} checks passed")
 
     if checks_passed == total_checks:
         click.echo("🎉 All systems healthy!")
-    elif checks_passed >= total_checks - 1:
+    elif checks_passed >= total_checks - 2:
         click.echo("⚠️  Minor issues detected - mostly functional")
+        if issues_found and not fix:
+            click.echo("💡 Run 'devhub doctor --fix' to attempt automatic fixes")
     else:
         click.echo("❌ Major issues detected - setup may be incomplete")
-        click.echo("\n💡 Next steps:")
-        click.echo("1. Install missing tools")
-        click.echo("2. Run: devhub init")
-        click.echo("3. Run: devhub auth setup")
+        if not fix:
+            click.echo("💡 Run 'devhub doctor --fix' to attempt automatic fixes")
+
+        click.echo("\n📋 Manual steps:")
+        for _issue_type, _description in issues_found:
+            click.echo(f"   • {_description}")
+
+    if verbose and issues_found:
+        click.echo(f"\n🔍 Issues detected: {len(issues_found)}")
+        for i, (_issue_type, description) in enumerate(issues_found, 1):
+            click.echo(f"   {i}. {description}")
+
+    # Always exit with 0 for doctor command - it's informational
+    # Exit code indicates whether the doctor command itself succeeded, not system health
 
 
 @cli.group()

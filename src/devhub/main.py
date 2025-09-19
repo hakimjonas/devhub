@@ -15,6 +15,7 @@ Optional environment variables for Jira:
 """
 
 import argparse
+import asyncio
 import base64
 import contextlib
 import datetime as dt
@@ -39,6 +40,8 @@ from returns.result import Success
 from devhub import __version__
 from devhub.config import DevHubConfig
 from devhub.config import load_config_with_environment
+from devhub.vault import SecureVault
+from devhub.vault import VaultConfig
 
 
 logger = logging.getLogger(__name__)
@@ -648,21 +651,119 @@ def get_jira_credentials_from_config(config: DevHubConfig, org_name: str | None 
     )
 
 
-def get_jira_credentials() -> JiraCredentials | None:
-    """Get Jira credentials from environment (legacy function)."""
-    base_url = os.getenv("JIRA_BASE_URL")
-    email = os.getenv("JIRA_EMAIL")
-    api_token = os.getenv("JIRA_API_TOKEN")
+@dataclass(frozen=True)
+class CredentialSources:
+    """Container for credentials from different sources."""
 
-    # Use explicit None checks so types are narrowed for mypy
-    if base_url is None or email is None or api_token is None:
-        return None
+    base_url: str | None = None
+    email: str | None = None
+    api_token: str | None = None
 
-    return JiraCredentials(
-        base_url=base_url,
-        email=email,
-        api_token=api_token,
+
+def _get_env_credentials() -> CredentialSources:
+    """Get credentials from environment variables."""
+    return CredentialSources(
+        base_url=os.getenv("JIRA_BASE_URL"),
+        email=os.getenv("JIRA_EMAIL"),
+        api_token=os.getenv("JIRA_API_TOKEN"),
     )
+
+
+def _extract_success_value(result: object) -> str | None:
+    """Extract value from Success result or return None."""
+    if isinstance(result, Success):
+        value = result.unwrap()
+        return str(value) if value is not None else None
+    if hasattr(result, "is_success") and result.is_success() and hasattr(result, "unwrap"):
+        value = result.unwrap()
+        return str(value) if value is not None else None
+    return None
+
+
+async def _get_vault_credentials() -> CredentialSources:
+    """Get credentials from vault."""
+    try:
+        vault_dir = Path.home() / ".devhub" / "vault"
+
+        if not (vault_dir / ".initialized").exists():
+            return CredentialSources()
+
+        vault_config = VaultConfig(vault_dir=vault_dir)
+        vault = SecureVault(vault_config)
+
+        # Unlock vault with default password
+        unlock_result = vault.unlock("devhub-default")
+        if not _extract_success_value(unlock_result):
+            return CredentialSources()
+
+        # Get credentials from vault
+        email_result = await vault.get_credential("jira_email")
+        token_result = await vault.get_credential("jira_token")
+
+        return CredentialSources(
+            email=_extract_success_value(email_result),
+            api_token=_extract_success_value(token_result),
+        )
+
+    except (OSError, RuntimeError, ValueError, ImportError):
+        return CredentialSources()
+
+
+def _get_config_base_url() -> str | None:
+    """Get base URL from configuration."""
+    try:
+        config_result = load_config_with_environment()
+        if isinstance(config_result, Success):
+            config = config_result.unwrap()
+            return str(config.jira.base_url) if config.jira.base_url else None
+    except (OSError, ValueError, KeyError, AttributeError):
+        pass
+    return None
+
+
+def _merge_credentials(
+    env_creds: CredentialSources, vault_creds: CredentialSources, config_base_url: str | None
+) -> CredentialSources:
+    """Merge credentials from different sources with priority: env > vault > config."""
+    return CredentialSources(
+        base_url=env_creds.base_url or config_base_url,
+        email=env_creds.email or vault_creds.email,
+        api_token=env_creds.api_token or vault_creds.api_token,
+    )
+
+
+def _create_jira_credentials(creds: CredentialSources) -> JiraCredentials | None:
+    """Create JiraCredentials if all required fields are present."""
+    if creds.base_url and creds.email and creds.api_token:
+        return JiraCredentials(
+            base_url=creds.base_url,
+            email=creds.email,
+            api_token=creds.api_token,
+        )
+    return None
+
+
+def get_jira_credentials() -> JiraCredentials | None:
+    """Get Jira credentials from environment, vault, or config."""
+    try:
+        # Get credentials from all sources
+        env_creds = _get_env_credentials()
+
+        # Quick return if env has everything
+        if env_creds.base_url and env_creds.email and env_creds.api_token:
+            return _create_jira_credentials(env_creds)
+
+        # Get from vault and config
+        vault_creds = asyncio.run(_get_vault_credentials())
+        config_base_url = _get_config_base_url()
+
+        # Merge all sources
+        final_creds = _merge_credentials(env_creds, vault_creds, config_base_url)
+
+        return _create_jira_credentials(final_creds)
+
+    except (OSError, ValueError, KeyError, AttributeError):
+        return None
 
 
 def fetch_jira_issue(credentials: JiraCredentials, key: str) -> Result[JiraIssue, str]:
@@ -951,8 +1052,252 @@ def _gather_bundle_data(
         return pr_result
     bundle = pr_result.unwrap()
 
+    # Process repository files if not metadata-only
+    if include_content:
+        files_result = _process_repository_files(bundle, devhub_config)
+        if isinstance(files_result, Failure):
+            return files_result
+        bundle = files_result.unwrap()
+
     fmt = getattr(args, "format", "json")
     return Success(format_json_output(bundle.to_dict(include_content=include_content), fmt))
+
+
+@dataclass(frozen=True)
+class FileProcessingConfig:
+    """Configuration for file processing."""
+
+    max_files: int = 100
+    include_tests: bool = True
+    include_docs: bool = True
+    max_file_size: int = 1024 * 1024  # 1MB
+
+    @property
+    def source_extensions(self) -> frozenset[str]:
+        """Source file extensions."""
+        return frozenset(
+            {
+                ".py",
+                ".js",
+                ".ts",
+                ".jsx",
+                ".tsx",
+                ".java",
+                ".cpp",
+                ".c",
+                ".h",
+                ".hpp",
+                ".cs",
+                ".rb",
+                ".go",
+                ".rs",
+                ".php",
+                ".swift",
+                ".kt",
+                ".scala",
+                ".clj",
+                ".sh",
+                ".bash",
+                ".ps1",
+                ".yaml",
+                ".yml",
+                ".json",
+                ".xml",
+                ".toml",
+                ".cfg",
+                ".ini",
+            }
+        )
+
+    @property
+    def doc_extensions(self) -> frozenset[str]:
+        """Documentation extensions."""
+        return frozenset({".md", ".rst", ".txt", ".adoc"})
+
+    @property
+    def test_patterns(self) -> frozenset[str]:
+        """Test file patterns."""
+        return frozenset({"test_", "_test", ".test.", "spec_", "_spec", ".spec.", "tests/", "test/"})
+
+    @property
+    def ignore_dirs(self) -> frozenset[str]:
+        """Directories to ignore."""
+        return frozenset(
+            {
+                ".git",
+                ".svn",
+                ".hg",
+                "__pycache__",
+                ".pytest_cache",
+                "node_modules",
+                ".venv",
+                "venv",
+                ".env",
+                "dist",
+                "build",
+                ".idea",
+                ".vscode",
+                "target",
+                ".next",
+                ".nuxt",
+                "coverage",
+                "htmlcov",
+                ".mypy_cache",
+                ".ruff_cache",
+            }
+        )
+
+
+def _get_file_processing_config(_devhub_config: DevHubConfig) -> FileProcessingConfig:
+    """Get file processing configuration from DevHub config."""
+    # Future: extract from devhub_config.get_default_organization().bundle_defaults
+    return FileProcessingConfig()
+
+
+def _should_include_file(file_path: Path, rel_path_str: str, config: FileProcessingConfig) -> bool:
+    """Determine if a file should be included based on configuration."""
+    ext = file_path.suffix.lower()
+
+    # Check if it's a test file
+    is_test = any(pattern in rel_path_str.lower() for pattern in config.test_patterns)
+
+    # Include source files
+    if ext in config.source_extensions:
+        return not is_test or config.include_tests
+
+    # Include/exclude docs
+    if ext in config.doc_extensions:
+        return config.include_docs
+
+    return False
+
+
+def _read_file_safely(file_path: Path) -> Result[tuple[str, int], str]:
+    """Safely read file content and return (content, lines)."""
+    try:
+        stat = file_path.stat()
+        if stat.st_size > 1024 * 1024:  # 1MB limit
+            return Failure("File too large")
+
+        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+            lines = len(content.split("\n"))
+            return Success((content, lines))
+    except (OSError, UnicodeDecodeError) as e:
+        return Failure(f"Cannot read file: {e}")
+
+
+def _process_single_file(
+    file_path: Path, current_dir: Path, config: FileProcessingConfig
+) -> Result[tuple[str, dict[str, Any]], str]:
+    """Process a single file and return its data."""
+    try:
+        rel_path = file_path.relative_to(current_dir)
+        rel_path_str = str(rel_path)
+
+        if not _should_include_file(file_path, rel_path_str, config):
+            return Failure("File not included")
+
+        # Check if it's a test file
+        is_test = any(pattern in rel_path_str.lower() for pattern in config.test_patterns)
+
+        content_result = _read_file_safely(file_path)
+        if isinstance(content_result, Failure):
+            return content_result
+
+        content, lines = content_result.unwrap()
+        stat = file_path.stat()
+
+        file_data = {
+            "content": content,
+            "lines": lines,
+            "size": stat.st_size,
+            "extension": file_path.suffix.lower(),
+            "is_test": is_test,
+        }
+
+        return Success((rel_path_str, file_data))
+
+    except (OSError, ValueError) as e:
+        return Failure(f"Error processing file {file_path}: {e}")
+
+
+def _collect_repository_files(current_dir: Path, config: FileProcessingConfig) -> Result[dict[str, Any], str]:
+    """Collect all repository files based on configuration."""
+    try:
+        files_data: dict[str, dict[str, Any]] = {}
+        total_lines = 0
+
+        for root, dirs, files in os.walk(current_dir):
+            # Filter directories in-place (FP-friendly approach)
+            dirs[:] = [d for d in dirs if d not in config.ignore_dirs]
+
+            if len(files_data) >= config.max_files:
+                break
+
+            root_path = Path(root)
+
+            for file in files:
+                if len(files_data) >= config.max_files:
+                    break
+
+                file_path = root_path / file
+                result = _process_single_file(file_path, current_dir, config)
+
+                if isinstance(result, Success):
+                    rel_path_str, file_data = result.unwrap()
+                    files_data[rel_path_str] = file_data
+                    total_lines += file_data["lines"]
+
+        return Success(
+            {
+                "files": files_data,
+                "file_summary": {
+                    "total_files": len(files_data),
+                    "total_lines": total_lines,
+                    "max_files_limit": config.max_files,
+                    "include_tests": config.include_tests,
+                    "include_docs": config.include_docs,
+                },
+            }
+        )
+
+    except (OSError, ValueError, PermissionError) as e:
+        return Failure(f"Failed to collect files: {e}")
+
+
+def _process_repository_files(bundle: BundleData, devhub_config: DevHubConfig) -> Result[BundleData, str]:
+    """Process repository files and add them to bundle metadata."""
+    try:
+        # Get configuration (pure function)
+        config = _get_file_processing_config(devhub_config)
+
+        # Collect files (pure function)
+        files_result = _collect_repository_files(Path.cwd(), config)
+        if isinstance(files_result, Failure):
+            return files_result
+
+        files_metadata = files_result.unwrap()
+
+        # Update bundle metadata (immutable)
+        current_metadata = bundle.metadata or {}
+        updated_metadata = {**current_metadata, **files_metadata}
+
+        # Create new bundle (immutable)
+        return Success(
+            BundleData(
+                jira_issue=bundle.jira_issue,
+                pr_data=bundle.pr_data,
+                pr_diff=bundle.pr_diff,
+                comments=bundle.comments,
+                repository=bundle.repository,
+                branch=bundle.branch,
+                metadata=updated_metadata,
+            )
+        )
+
+    except (OSError, ValueError, PermissionError) as e:
+        return Failure(f"Failed to process repository files: {e}")
 
 
 def _save_jira_files(bundle_data: BundleData, output_paths: OutputPaths) -> Result[None, str]:
