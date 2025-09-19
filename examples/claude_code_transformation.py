@@ -66,7 +66,6 @@ Platform: github
 - feat: create platform-agnostic SDK for equal platform treatment...
         """
 
-
     f"""
     Claude Code WITH DevHub:
 
