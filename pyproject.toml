@@ -49,6 +49,7 @@ dependencies = [
 
 [project.scripts]
 devhub = "devhub.cli:main"
+devhub-mcp = "devhub.mcp_server:cli_main"
 
 [project.urls]
 Homepage = "https://github.com/hakimjonas/devhub"

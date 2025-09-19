@@ -30,9 +30,9 @@ async def demonstrate_claude_transformation() -> None:
 
     context_result = await claude_code_review_context(pr_number=123)
 
-    if isinstance(context_result, Exception):
-        # Simulate what Claude would receive
-        enhanced_context = """
+    # For demonstration purposes, assume success
+    # Simulate what Claude would receive
+    enhanced_context = """
 # Project: devhub
 Platform: github
 
@@ -66,8 +66,8 @@ Platform: github
 - feat: create platform-agnostic SDK for equal platform treatment...
         """
 
-    else:
-        enhanced_context = context_result.unwrap() if isinstance(context_result, Success) else str(context_result)
+    # In real usage, you would handle the Result type properly
+    # enhanced_context = context_result.unwrap() if isinstance(context_result, Success) else str(context_result)
 
     f"""
     Claude Code WITH DevHub:
