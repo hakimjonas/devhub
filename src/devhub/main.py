@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 from typing import cast
 
+import yaml
 from returns.result import Failure
 from returns.result import Result
 from returns.result import Success
@@ -41,6 +42,7 @@ from devhub import __version__
 from devhub.config import DevHubConfig
 from devhub.config import load_config_with_environment
 from devhub.vault import SecureVault
+from devhub.vault import VaultBackend
 from devhub.vault import VaultConfig
 
 
@@ -688,12 +690,12 @@ async def _get_vault_credentials() -> CredentialSources:
         if not (vault_dir / ".initialized").exists():
             return CredentialSources()
 
-        vault_config = VaultConfig(vault_dir=vault_dir)
+        vault_config = VaultConfig(backend=VaultBackend.FILE_SYSTEM, vault_dir=vault_dir)
         vault = SecureVault(vault_config)
 
         # Unlock vault with default password
         unlock_result = vault.unlock("devhub-default")
-        if not _extract_success_value(unlock_result):
+        if not isinstance(unlock_result, Success):
             return CredentialSources()
 
         # Get credentials from vault
@@ -712,11 +714,15 @@ async def _get_vault_credentials() -> CredentialSources:
 def _get_config_base_url() -> str | None:
     """Get base URL from configuration."""
     try:
-        config_result = load_config_with_environment()
-        if isinstance(config_result, Success):
-            config = config_result.unwrap()
-            return str(config.jira.base_url) if config.jira.base_url else None
-    except (OSError, ValueError, KeyError, AttributeError):
+        # Try to read project config directly
+        project_config = Path.cwd() / ".devhub.yaml"
+        if project_config.exists():
+            with project_config.open() as f:
+                config_data = yaml.safe_load(f) or {}
+                jira_config = config_data.get("jira", {})
+                base_url = jira_config.get("base_url")
+                return str(base_url) if base_url else None
+    except (OSError, ValueError, KeyError, AttributeError, ImportError):
         pass
     return None
 
@@ -1453,7 +1459,9 @@ def _setup_bundle_config(args: argparse.Namespace) -> tuple[DevHubConfig, Bundle
     """Set up configuration for bundle command."""
     config_path = getattr(args, "config", None)
     if not isinstance(config_path, (str, os.PathLike)):
-        config_path = None
+        # Always prioritize project-level .devhub.yaml config
+        project_config = Path.cwd() / ".devhub.yaml"
+        config_path = project_config if project_config.exists() else None
     cfg_result = load_config_with_environment(config_path)
     devhub_config = cfg_result.unwrap() if isinstance(cfg_result, Success) else DevHubConfig()
 
