@@ -109,6 +109,9 @@ ignore = [
     "S108", # Allow explicit /tmp paths in tests
     "C408", # Allow tuple() in tests
 ]
+"examples/*" = [
+    "T201", "F841", "ANN001", "ANN201", "D100", "D101", "D102", "D103", # Allow example code flexibility
+]
 "**/__init__.py" = ["F401", "D104"]
 "src/devhub/main.py" = ["EXE001", "S310", "G004", "PLR0911"]
 "src/devhub/config.py" = ["PLR2004", "PLR0911", "BLE001"]

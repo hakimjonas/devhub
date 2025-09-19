@@ -45,7 +45,7 @@ async def setup_existing_project_enhancement() -> None:
 
     # Step 2: Quick DevHub Setup
     devhub_config = project_path / ".devhub.yaml"
-    print(f"DevHub config would be created at: {devhub_config}")
+    # DevHub config would be created at devhub_config path
 
     # Step 3: Enhanced Claude Context Generation
 

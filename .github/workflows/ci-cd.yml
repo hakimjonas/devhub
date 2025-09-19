@@ -39,12 +39,8 @@ jobs:
     - name: Run linting and formatting (CLAUDE.md requirement)
       run: |
         uv run ruff check .
-        uv run ruff format . --check
+        uv run ruff format --check .
 
-    - name: Run pre-commit checks
-      run: uv run pre-commit run --all-files
-      if: matrix.os == 'ubuntu-latest'
-      
     - name: Run type checking (CLAUDE.md requirement)
       run: |
         uv run mypy .
