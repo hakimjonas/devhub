@@ -30,6 +30,7 @@ from devhub.main import handle_bundle_command
 from devhub.vault import CredentialMetadata
 from devhub.vault import CredentialType
 from devhub.vault import SecureVault
+from devhub.vault import VaultBackend
 from devhub.vault import VaultConfig
 
 
@@ -1091,7 +1092,7 @@ def _wizard_setup_credentials(platforms: dict[str, Any]) -> None:
             click.echo("   🔐 Initializing vault...")
 
             async def store_jira_credentials() -> None:
-                vault_config = VaultConfig(vault_dir=VAULT_DIR)
+                vault_config = VaultConfig(backend=VaultBackend.FILE_SYSTEM, vault_dir=VAULT_DIR)
                 vault = SecureVault(vault_config)
 
                 # Initialize vault if needed

@@ -296,31 +296,37 @@ class SecureVault:
             Success if initialized, Failure with error message
         """
         try:
-            # Generate or retrieve master key
-            master_key_result = await self._get_or_create_master_key(master_password)
-            if isinstance(master_key_result, Failure):
-                return master_key_result
-
-            self._master_key = master_key_result.unwrap()
-            self._cipher = Fernet(base64.urlsafe_b64encode(self._master_key))
-
-            # Store password hash for verification
-            self._password_hash = hashlib.sha256(master_password.encode()).digest()
-
-            # Load existing credentials
-            load_result = await self._load_credentials()
-            if isinstance(load_result, Failure):
-                return load_result
-
-            self._is_locked = False
-            self._failed_attempts = 0
-            await self._audit_log("vault_initialized", success=True)
-
-            return Success(None)
-
+            return await self._perform_initialization(master_password)
         except (OSError, ValueError, RuntimeError) as e:
             await self._audit_log("vault_initialize_failed", success=False, error_message=str(e))
             return Failure(f"Vault initialization failed: {e}")
+
+    async def _perform_initialization(self, master_password: str) -> Result[None, str]:
+        """Perform the actual vault initialization steps."""
+        # Generate or retrieve master key
+        master_key_result = await self._get_or_create_master_key(master_password)
+        if isinstance(master_key_result, Failure):
+            return master_key_result
+
+        # Setup vault internals
+        self._master_key = master_key_result.unwrap()
+        self._cipher = Fernet(base64.urlsafe_b64encode(self._master_key))
+        self._password_hash = hashlib.sha256(master_password.encode()).digest()
+
+        # Load and save credentials, then finalize
+        load_result = await self._load_credentials()
+        if isinstance(load_result, Failure):
+            return load_result
+
+        save_result = await self._save_credentials()
+        if isinstance(save_result, Failure):
+            return save_result
+
+        # Finalize initialization
+        self._is_locked = False
+        self._failed_attempts = 0
+        await self._audit_log("vault_initialized", success=True)
+        return Success(None)
 
     @contextmanager
     def unlock_context(self, master_password: str) -> Iterator[None]:
