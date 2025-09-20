@@ -8,6 +8,13 @@ on:
     branches: [ main, develop ]
   release:
     types: [ published ]
+  workflow_dispatch:
+    inputs:
+      skip_cache:
+        description: 'Skip all caches (forces fresh run)'
+        required: false
+        default: 'false'
+        type: boolean
 
 env:
   PYTHON_VERSION: "3.13"
@@ -30,7 +37,8 @@ jobs:
       uses: astral-sh/setup-uv@v4
       with:
         version: "latest"
-        
+        enable-cache: ${{ github.event.inputs.skip_cache != 'true' }}
+
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
       
