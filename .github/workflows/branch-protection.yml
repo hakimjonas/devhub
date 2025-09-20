@@ -1,0 +1,45 @@
+name: Setup Branch Protection
+
+on:
+  workflow_dispatch:  # Manual trigger only
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/branch-protection.yml' ]
+
+jobs:
+  setup-branch-protection:
+    name: Configure branch protection rules
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      administration: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup branch protection rules
+      run: |
+        # Enable branch protection for main branch
+        gh api repos/${{ github.repository }}/branches/main/protection \
+          --method PUT \
+          --field required_status_checks='{"strict":true,"contexts":["Test on Python 3.13 (ubuntu-latest)","Test on Python 3.13 (windows-latest)","Test on Python 3.13 (macos-latest)","Build distribution packages"]}' \
+          --field enforce_admins=true \
+          --field required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true,"require_code_owner_reviews":false}' \
+          --field restrictions=null \
+          --field allow_force_pushes=false \
+          --field allow_deletions=false \
+          --field block_creations=false \
+          --field required_conversation_resolution=true \
+          --field lock_branch=false \
+          --field allow_fork_syncing=true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Verify protection rules
+      run: |
+        echo "Branch protection rules configured for main branch:"
+        gh api repos/${{ github.repository }}/branches/main/protection | jq '.'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

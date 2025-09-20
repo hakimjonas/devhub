@@ -6,8 +6,6 @@ code assistant into a comprehensive development orchestrator.
 
 import asyncio
 
-from returns.result import Success
-
 from devhub.claude_integration import ClaudeTaskType
 from devhub.claude_integration import claude_architecture_context
 from devhub.claude_integration import claude_code_review_context
@@ -30,8 +28,10 @@ async def demonstrate_claude_transformation() -> None:
 
     context_result = await claude_code_review_context(pr_number=123)
 
-    if isinstance(context_result, Exception):
-        # Simulate what Claude would receive
+    # Handle the Result type properly
+    if hasattr(context_result, "unwrap"):
+        enhanced_context = context_result.unwrap()
+    else:
         enhanced_context = """
 # Project: devhub
 Platform: github
@@ -65,9 +65,6 @@ Platform: github
 - feat: add secure credential vault with encryption and audit...
 - feat: create platform-agnostic SDK for equal platform treatment...
         """
-
-    else:
-        enhanced_context = context_result.unwrap() if isinstance(context_result, Success) else str(context_result)
 
     f"""
     Claude Code WITH DevHub:

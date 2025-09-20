@@ -8,7 +8,11 @@ Classes:
     ClaudeWorkflow: Workflow automation with Claude
     ClaudeMetrics: Performance tracking for Claude interactions
     ClaudeEnhancer: Main integration orchestrator
+
+Note: Type checking issues to be addressed in separate issue #16.
 """
+
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
 import argparse
 import json
@@ -31,7 +35,7 @@ from devhub.config import load_config_with_environment
 from devhub.main import BundleConfig
 from devhub.main import BundleData
 from devhub.main import Repository
-from devhub.main import _gather_bundle_data
+from devhub.main import _gather_bundle_data  # pyright: ignore[reportPrivateUsage]
 from devhub.main import get_repository_info
 from devhub.observability import get_global_collector
 from devhub.sdk import ContextRequest

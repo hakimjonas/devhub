@@ -34,7 +34,7 @@ class Installer:
 
     def detect_tools(self) -> list[tuple[str, str]]:
         """Detect available installation tools."""
-        tools = []
+        tools: list[tuple[str, str]] = []
 
         if shutil.which("uv"):
             tools.append(("uv", "Ultra-fast Python package installer"))
