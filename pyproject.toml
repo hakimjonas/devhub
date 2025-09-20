@@ -79,6 +79,7 @@ dev-dependencies = [
     "typos>=1.35.5",
     "vulture>=2.14", # Dead code detection
     "refurb>=2.1.0", # Modernization suggestions
+    "twine>=6.0.0", # Package verification for CI build
 ]
 
 [tool.uv.workspace]
