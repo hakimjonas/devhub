@@ -1904,8 +1904,14 @@ def config() -> None:
 @config.command()
 def show() -> None:
     """Show current configuration."""
-    config = load_config()
-    click.echo(yaml.dump(config, default_flow_style=False))
+    try:
+        config = load_config()
+        click.echo(yaml.dump(config, default_flow_style=False))
+    except (PermissionError, OSError) as e:
+        click.echo(f"⚠️  Warning: Could not read configuration: {e}")
+        click.echo("📝 Current configuration: {}")
+        click.echo("")
+        click.echo("💡 Tip: Run 'devhub init' to create a new configuration")
 
 
 @config.command("set")
