@@ -130,7 +130,9 @@ jobs:
       run: |
         uv venv test-env --python 3.13
         source test-env/bin/activate
-        pip install dist/*.whl
+        python --version
+        which python
+        python -m pip install dist/*.whl
         devhub --version
         devhub --help
         
@@ -138,7 +140,9 @@ jobs:
       run: |
         uv venv test-source-env --python 3.13
         source test-source-env/bin/activate
-        pip install dist/*.tar.gz
+        python --version
+        which python
+        python -m pip install dist/*.tar.gz
         devhub --version
         devhub --help
         
